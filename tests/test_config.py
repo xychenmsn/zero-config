@@ -5,11 +5,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from zero_config import (
-    setup_environment, 
-    get_config, 
-    data_path, 
+    setup_environment,
+    get_config,
+    data_path,
     logs_path,
-    DEFAULTS,
     smart_convert,
     find_project_root,
     load_domain_env_file
@@ -40,8 +39,28 @@ class TestSmartConvert:
         assert smart_convert("0", True) == False
     
     def test_list_conversion(self):
+        # JSON array format (preferred)
+        assert smart_convert('["a", "b", "c"]', []) == ["a", "b", "c"]
+        assert smart_convert('["item1", "item2"]', []) == ["item1", "item2"]
+
+        # Comma-separated format
         assert smart_convert("a,b,c", []) == ["a", "b", "c"]
         assert smart_convert("a, b , c", []) == ["a", "b", "c"]  # strips whitespace
+        assert smart_convert("item1,item2,item3", []) == ["item1", "item2", "item3"]
+
+        # Space-separated format
+        assert smart_convert("a b c", []) == ["a", "b", "c"]
+        assert smart_convert("item1 item2 item3", []) == ["item1", "item2", "item3"]
+
+        # Single item
+        assert smart_convert("single-item", []) == ["single-item"]
+
+        # Empty string
+        assert smart_convert("", []) == []
+        assert smart_convert("   ", []) == []
+
+        # Mixed formats with commas and spaces (comma takes precedence)
+        assert smart_convert("a,b c,d", []) == ["a", "b c", "d"]
 
 
 class TestProjectRoot:
@@ -66,8 +85,8 @@ class TestProjectRoot:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir).resolve()
 
-            # Create a .env.zero_config file
-            (tmpdir_path / ".env.zero_config").touch()
+            # Create a .env file (since .env.zero_config is no longer a project root indicator)
+            (tmpdir_path / ".env").touch()
 
             # Should find the root
             root = find_project_root(tmpdir_path)
@@ -106,6 +125,42 @@ models=gpt-4,claude-3
             env_vars = load_domain_env_file(tmpdir_path)
             assert env_vars == {}
 
+    def test_domain_env_with_smart_conversion(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            env_file = tmpdir_path / ".env.zero_config"
+
+            # Create test env file with various types
+            env_content = """
+# Test configuration
+temperature=0.7
+max_tokens=2048
+debug=true
+models=gpt-4,claude-3
+api_key=sk-test-key
+"""
+            env_file.write_text(env_content)
+
+            # Test with default config for type conversion
+            default_config = {
+                'temperature': 0.0,  # float
+                'max_tokens': 1024,  # int
+                'debug': False,      # bool
+                'models': ['gpt-4']  # list
+            }
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Test smart type conversion from .env file
+                    assert config.get('temperature') == 0.7  # converted to float
+                    assert config.get('max_tokens') == 2048  # converted to int
+                    assert config.get('debug') == True       # converted to bool
+                    assert config.get('models') == ['gpt-4', 'claude-3']  # converted to list
+                    assert config.get('api_key') == 'sk-test-key'  # added as string
+
 
 class TestConfiguration:
     """Test the main configuration functionality."""
@@ -113,50 +168,72 @@ class TestConfiguration:
     def test_defaults_loaded(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
-                setup_environment()
-                config = get_config()
-                
-                # Check some default values
-                assert config.get('default_model') == 'gpt-4o-mini'
-                assert config.get('temperature') == 0.0
-                assert config.get('max_tokens') == 1024
-                assert isinstance(config.get('openai_models'), list)
+                # Clear environment variables that might interfere
+                with patch.dict(os.environ, {}, clear=True):
+                    setup_environment()
+                    config = get_config()
+
+                    # Zero config starts with empty defaults
+                    assert config.to_dict() == {}
+
+                    # But can still access non-existent keys with defaults
+                    assert config.get('nonexistent_key', 'default') == 'default'
     
     def test_environment_variable_override(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                # Test with default config that has typed values
+                default_config = {
+                    'temperature': 0.0,  # float
+                    'max_tokens': 1024,  # int
+                    'debug': False,      # bool
+                    'models': ['gpt-4'],  # list
+                    'openai_api_key': ''  # string (so env var can override)
+                }
+
                 with patch.dict(os.environ, {
                     'OPENAI_API_KEY': 'sk-test-key',
-                    'ZERO_CONFIG_TEMPERATURE': '0.8',
-                    'ZERO_CONFIG_MAX_TOKENS': '2048'
-                }):
-                    setup_environment()
+                    'TEMPERATURE': '0.8',
+                    'MAX_TOKENS': '2048',
+                    'DEBUG': 'true',
+                    'MODELS': 'gpt-4,claude-3'
+                }, clear=True):
+                    setup_environment(default_config=default_config)
                     config = get_config()
-                    
+
+                    # Test API key (has default, overridden by env var)
                     assert config.get('openai_api_key') == 'sk-test-key'
-                    assert config.get('temperature') == 0.8
-                    assert config.get('max_tokens') == 2048
+
+                    # Test smart type conversion based on defaults
+                    assert config.get('temperature') == 0.8  # converted to float
+                    assert config.get('max_tokens') == 2048  # converted to int
+                    assert config.get('debug') == True       # converted to bool
+                    assert config.get('models') == ['gpt-4', 'claude-3']  # converted to list
     
     def test_config_methods(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
-                setup_environment()
-                config = get_config()
-                
-                # Test __getitem__
-                assert config['default_model'] == 'gpt-4o-mini'
-                
-                # Test __contains__
-                assert 'default_model' in config
-                assert 'nonexistent_key' not in config
-                
-                # Test get with default
-                assert config.get('nonexistent_key', 'default_value') == 'default_value'
-                
-                # Test to_dict
-                config_dict = config.to_dict()
-                assert isinstance(config_dict, dict)
-                assert 'default_model' in config_dict
+                # Provide default config with test_key so env var can override it
+                default_config = {'test_key': 'default_value'}
+
+                with patch.dict(os.environ, {'TEST_KEY': 'test_value'}, clear=True):
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Test __getitem__
+                    assert config['test_key'] == 'test_value'
+
+                    # Test __contains__
+                    assert 'test_key' in config
+                    assert 'nonexistent_key' not in config
+
+                    # Test get with default
+                    assert config.get('nonexistent_key', 'default_value') == 'default_value'
+
+                    # Test to_dict
+                    config_dict = config.to_dict()
+                    assert isinstance(config_dict, dict)
+                    assert 'test_key' in config_dict
     
     def test_path_helpers(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -176,6 +253,32 @@ class TestConfiguration:
                 
                 log_file = logs_path("app.log")
                 assert log_file == str(Path(tmpdir) / "logs" / "app.log")
+
+    def test_dynamic_path_helpers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                setup_environment()
+                config = get_config()
+
+                # Test dynamic path helpers
+                cache_dir = config.cache_path()
+                assert cache_dir == str(Path(tmpdir) / "cache")
+
+                cache_file = config.cache_path("session.json")
+                assert cache_file == str(Path(tmpdir) / "cache" / "session.json")
+
+                # Test various dynamic paths
+                assert config.temp_path() == str(Path(tmpdir) / "temp")
+                assert config.models_path("gpt4.bin") == str(Path(tmpdir) / "models" / "gpt4.bin")
+                assert config.uploads_path() == str(Path(tmpdir) / "uploads")
+                assert config.static_path("style.css") == str(Path(tmpdir) / "static" / "style.css")
+
+                # Test that non-path attributes raise AttributeError
+                try:
+                    config.invalid_attribute
+                    assert False, "Should have raised AttributeError"
+                except AttributeError:
+                    pass
 
 
 if __name__ == "__main__":

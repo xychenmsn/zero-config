@@ -11,24 +11,34 @@ from zero_config import setup_environment, get_config, data_path, logs_path
 
 def main():
     """Demonstrate basic zero_config usage."""
-    
+
     print("🚀 Zero Config Example")
     print("=" * 50)
-    
-    # Initialize configuration (call this once at startup)
-    setup_environment()
-    
+
+    # Example default configuration (optional)
+    default_config = {
+        'temperature': 0.0,
+        'max_tokens': 1024,
+        'timeout': 30,
+        'debug': False,
+        'models': ['gpt-4o-mini'],
+    }
+
+    # Initialize configuration with defaults (call this once at startup)
+    setup_environment(default_config=default_config)
+
     # Get the global configuration object
     config = get_config()
     
     print("\n📋 Configuration Values:")
     print("-" * 30)
     
-    # Access configuration values
-    print(f"Default Model: {config.get('default_model')}")
+    # Access configuration values (from defaults, env vars, or .env.zero_config)
     print(f"Temperature: {config.get('temperature')}")
     print(f"Max Tokens: {config.get('max_tokens')}")
-    print(f"Timeout: {config.get('timeout')} seconds")
+    print(f"Timeout: {config.get('timeout')}")
+    print(f"Debug: {config.get('debug')}")
+    print(f"Models: {config.get('models')}")
     
     # Check API keys
     print(f"\n🔑 API Keys:")
@@ -46,12 +56,19 @@ def main():
     else:
         print("Anthropic API Key: Not configured")
     
-    # Show available models
-    print(f"\n🤖 Available Models:")
-    print("-" * 20)
-    print(f"OpenAI Models: {', '.join(config.get('openai_models', [])[:3])}...")
-    print(f"Anthropic Models: {', '.join(config.get('anthropic_models', [])[:2])}...")
-    print(f"Google Models: {', '.join(config.get('google_models', [])[:2])}...")
+    # Show configured values
+    print(f"\n⚙️  Configured Values:")
+    print("-" * 22)
+    config_dict = config.to_dict()
+    if config_dict:
+        for key, value in sorted(config_dict.items()):
+            if 'key' in key.lower() and value:
+                # Mask API keys for security
+                print(f"{key}: {str(value)[:10]}..." if len(str(value)) > 10 else f"{key}: [masked]")
+            else:
+                print(f"{key}: {value}")
+    else:
+        print("No configuration values set. Try setting some environment variables!")
     
     # Demonstrate path helpers
     print(f"\n📁 Path Helpers:")
@@ -60,6 +77,16 @@ def main():
     print(f"Database Path: {data_path('app.db')}")
     print(f"Logs Directory: {logs_path()}")
     print(f"Log File Path: {logs_path('app.log')}")
+
+    # Demonstrate dynamic path helpers
+    print(f"\n🔧 Dynamic Path Helpers:")
+    print("-" * 25)
+    print(f"Cache Directory: {config.cache_path()}")
+    print(f"Cache File: {config.cache_path('session.json')}")
+    print(f"Temp Directory: {config.temp_path()}")
+    print(f"Models File: {config.models_path('gpt4.bin')}")
+    print(f"Uploads Directory: {config.uploads_path()}")
+    print(f"Static File: {config.static_path('style.css')}")
     
     # Show configuration sources
     print(f"\n🔧 Configuration Tips:")
@@ -68,14 +95,19 @@ def main():
     print("   export OPENAI_API_KEY='sk-your-key-here'")
     print("   export ANTHROPIC_API_KEY='sk-ant-your-key-here'")
     print()
-    print("2. Override settings with ZERO_CONFIG_ prefix:")
-    print("   export ZERO_CONFIG_TEMPERATURE='0.7'")
-    print("   export ZERO_CONFIG_MAX_TOKENS='2048'")
+    print("2. Override settings with uppercase environment variables:")
+    print("   export TEMPERATURE='0.7'")
+    print("   export MAX_TOKENS='2048'")
+    print("   export DEBUG='true'")
+    print("   export MODELS='[\"gpt-4\", \"claude-3\"]'  # JSON array (recommended)")
+    print("   export MODELS='gpt-4,claude-3'            # Comma-separated")
+    print("   export MODELS='gpt-4 claude-3'            # Space-separated")
     print()
     print("3. Create .env.zero_config file in project root:")
     print("   temperature=0.2")
     print("   max_tokens=1500")
-    print("   log_calls=true")
+    print("   debug=true")
+    print('   models=["gpt-4", "claude-3"]  # JSON array recommended')
     
     # Show all configuration (for debugging)
     if os.getenv('SHOW_ALL_CONFIG'):

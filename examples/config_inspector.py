@@ -26,10 +26,16 @@ def inspect_config(show_all=False, show_defaults=False, format_json=False):
         print("📋 Default Configuration:")
         print("=" * 50)
         data = DEFAULTS
+        if not data:
+            print("Zero Config uses no built-in defaults - configuration comes from environment variables and .env.zero_config files.")
+            return 0
     else:
         print("📋 Current Configuration:")
         print("=" * 50)
         data = config.to_dict()
+        if not data:
+            print("No configuration values found. Try setting environment variables or creating a .env.zero_config file.")
+            return 0
     
     if format_json:
         # JSON output
@@ -65,14 +71,20 @@ def check_environment():
         else:
             print(f"  ❌ {key}: Not set")
     
-    # Check for ZERO_CONFIG_ prefixed variables
-    print("\n⚙️  ZERO_CONFIG_ Variables:")
-    zero_config_vars = [k for k in os.environ.keys() if k.startswith('ZERO_CONFIG_')]
-    if zero_config_vars:
-        for var in sorted(zero_config_vars):
-            print(f"  ✅ {var}: {os.environ[var]}")
+    # Check for uppercase environment variables
+    print("\n⚙️  Uppercase Environment Variables:")
+    uppercase_vars = [k for k in os.environ.keys() if k.isupper() and not k.startswith('_')]
+    if uppercase_vars:
+        # Show first 10 to avoid spam
+        for var in sorted(uppercase_vars)[:10]:
+            value = os.environ[var]
+            if len(value) > 50:
+                value = value[:47] + "..."
+            print(f"  ✅ {var}: {value}")
+        if len(uppercase_vars) > 10:
+            print(f"  ... and {len(uppercase_vars) - 10} more")
     else:
-        print("  ❌ No ZERO_CONFIG_ variables found")
+        print("  ❌ No uppercase environment variables found")
     
     # Check for .env.zero_config file
     print("\n📄 Configuration Files:")
