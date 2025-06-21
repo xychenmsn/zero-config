@@ -33,6 +33,30 @@ class Config:
     def to_dict(self) -> Dict[str, Any]:
         return self._data.copy()
 
+    def get_section(self, section: str) -> Dict[str, Any]:
+        """Get all configuration values for a specific section.
+
+        Args:
+            section: Section name (e.g., 'llm' for all 'llm.*' keys)
+
+        Returns:
+            Dictionary with section keys (without the section prefix)
+
+        Example:
+            config.get_section('llm') returns {'models': [...], 'temperature': 0.7}
+            for config keys 'llm.models' and 'llm.temperature'
+        """
+        section_prefix = f"{section}."
+        section_config = {}
+
+        for key, value in self._data.items():
+            if key.startswith(section_prefix):
+                # Remove section prefix: 'llm.models' -> 'models'
+                section_key = key[len(section_prefix):]
+                section_config[section_key] = value
+
+        return section_config
+
     def __getattr__(self, name: str) -> Any:
         """Dynamic path helper: any attribute ending with '_path' creates a path helper."""
         if name.endswith('_path'):
@@ -50,21 +74,8 @@ class Config:
         # If not a path helper, raise AttributeError
         raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
-    def data_path(self, filename: str = "") -> str:
-        """Legacy method for backward compatibility."""
-        path = self._project_root / "data"
-        if filename:
-            path = path / filename
-        return str(path)
-
-    def logs_path(self, filename: str = "") -> str:
-        """Legacy method for backward compatibility."""
-        path = self._project_root / "logs"
-        if filename:
-            path = path / filename
-        return str(path)
-
     def get_db_path(self) -> str:
+        """Get database path, using data_path helper."""
         db_path = self.get('db_path', 'llm_calls.db')
         if os.path.isabs(db_path):
             return db_path
@@ -176,13 +187,18 @@ def smart_convert(str_value: str, default_value: Any) -> Any:
         return str_value
 
 def apply_environment_variables(config: Dict[str, Any]) -> None:
-    """Apply environment variables with smart type conversion."""
+    """Apply environment variables with smart type conversion and section support."""
 
     # Search uppercase environment variables and match to config keys
     for env_var, env_value in os.environ.items():
         if env_var.isupper():
-            # Convert env var name to lowercase config key
-            config_key = env_var.lower()
+            # Handle section headers: LLM__MODELS -> llm.models
+            if '__' in env_var:
+                section, key = env_var.split('__', 1)
+                config_key = f"{section.lower()}.{key.lower()}"
+            else:
+                # Regular key: TEMPERATURE -> temperature
+                config_key = env_var.lower()
 
             # Only apply if we have a corresponding config key (from defaults or .env)
             if config_key in config:
@@ -225,6 +241,7 @@ def setup_environment(
     # 3. .env.zero_config file (highest priority)
     domain_env = load_domain_env_file(_project_root)
     for key, str_value in domain_env.items():
+        # Domain env file keys are already in the correct format (llm.models)
         if key in config_data:
             # Use smart conversion based on existing default value type
             config_data[key] = smart_convert(str_value, config_data[key])
@@ -248,9 +265,9 @@ def get_config() -> Config:
     return _config
 
 def data_path(filename: str = "") -> str:
-    """Get data directory path."""
+    """Get data directory path using dynamic path helper."""
     return get_config().data_path(filename)
 
 def logs_path(filename: str = "") -> str:
-    """Get logs directory path."""
+    """Get logs directory path using dynamic path helper."""
     return get_config().logs_path(filename)

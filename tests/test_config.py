@@ -280,6 +280,88 @@ class TestConfiguration:
                 except AttributeError:
                     pass
 
+    def test_section_headers(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                # Test with section headers in default config
+                default_config = {
+                    'llm.models': ['gpt-4'],
+                    'llm.temperature': 0.0,
+                    'database.host': 'localhost',
+                    'database.port': 5432,
+                    'simple_key': 'value'
+                }
+
+                with patch.dict(os.environ, {
+                    'LLM__MODELS': '["gpt-4", "claude-3"]',
+                    'LLM__TEMPERATURE': '0.7',
+                    'DATABASE__HOST': 'remote.db.com',
+                    'DATABASE__PORT': '3306',
+                    'SIMPLE_KEY': 'overridden'
+                }, clear=True):
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Test section header environment variable conversion
+                    assert config.get('llm.models') == ['gpt-4', 'claude-3']
+                    assert config.get('llm.temperature') == 0.7
+                    assert config.get('database.host') == 'remote.db.com'
+                    assert config.get('database.port') == 3306  # converted to int
+                    assert config.get('simple_key') == 'overridden'
+
+    def test_get_section(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                # Test with section headers in default config
+                default_config = {
+                    'llm.models': ['gpt-4'],
+                    'llm.temperature': 0.0,
+                    'llm.max_tokens': 1024,
+                    'database.host': 'localhost',
+                    'database.port': 5432,
+                    'database.ssl': True,
+                    'simple_key': 'value',
+                    'cache.enabled': True,
+                    'cache.ttl': 3600
+                }
+
+                setup_environment(default_config=default_config)
+                config = get_config()
+
+                # Test getting LLM section
+                llm_config = config.get_section('llm')
+                expected_llm = {
+                    'models': ['gpt-4'],
+                    'temperature': 0.0,
+                    'max_tokens': 1024
+                }
+                assert llm_config == expected_llm
+
+                # Test getting database section
+                db_config = config.get_section('database')
+                expected_db = {
+                    'host': 'localhost',
+                    'port': 5432,
+                    'ssl': True
+                }
+                assert db_config == expected_db
+
+                # Test getting cache section
+                cache_config = config.get_section('cache')
+                expected_cache = {
+                    'enabled': True,
+                    'ttl': 3600
+                }
+                assert cache_config == expected_cache
+
+                # Test getting non-existent section
+                empty_config = config.get_section('nonexistent')
+                assert empty_config == {}
+
+                # Test that simple keys are not included in sections
+                simple_config = config.get_section('simple')
+                assert simple_config == {}  # 'simple_key' doesn't match 'simple.*'
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

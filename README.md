@@ -23,6 +23,12 @@ default_config = {
     'timeout': 30,
     'debug': False,
     'models': ['gpt-4o-mini'],
+
+    # Section headers for organized configuration
+    'llm.models': ['gpt-4o-mini', 'claude-3'],
+    'llm.temperature': 0.0,
+    'database.host': 'localhost',
+    'database.port': 5432,
 }
 
 # Initialize with your defaults (call once at startup)
@@ -35,6 +41,10 @@ config = get_config()
 temperature = config.get('temperature')  # 0.0 (float from defaults)
 api_key = config.get('openai_api_key')   # From OPENAI_API_KEY env var
 debug = config.get('debug')              # False (bool from defaults)
+
+# Access section configuration
+llm_config = config.get_section('llm')   # {'models': [...], 'temperature': 0.0}
+db_config = config.get_section('database') # {'host': 'localhost', 'port': 5432}
 
 # Environment variables override defaults with type conversion
 # export TEMPERATURE="0.7"  -> becomes float 0.7
@@ -65,6 +75,12 @@ export DEBUG="true"                         # Becomes: debug (with type conversi
 export MODELS='["gpt-4", "claude-3"]'       # JSON array (preferred)
 export MODELS="gpt-4,claude-3"              # Comma-separated
 export MODELS="gpt-4 claude-3"              # Space-separated
+
+# Section headers with double underscore:
+export LLM__MODELS='["gpt-4", "claude-3"]'  # Becomes: llm.models
+export LLM__TEMPERATURE="0.7"               # Becomes: llm.temperature
+export DATABASE__HOST="remote.db.com"       # Becomes: database.host
+export DATABASE__PORT="3306"                # Becomes: database.port
 ```
 
 ### Domain Environment File
@@ -103,9 +119,9 @@ This approach gives you full control over your application's configuration while
 
 ## 🛠️ Advanced Usage
 
-### Dynamic Path Helpers
+### Dynamic Path Helpers (Ruby on Rails Style)
 
-Zero Config provides dynamic path helpers - any attribute ending with `_path` automatically creates a path helper:
+Zero Config provides dynamic path helpers - any attribute ending with `_path` automatically creates a path helper function:
 
 ```python
 from zero_config import setup_environment, get_config, data_path, logs_path
@@ -124,9 +140,17 @@ models_file = config.models_path('gpt4.bin')      # /project/models/gpt4.bin
 uploads_dir = config.uploads_path()               # /project/uploads/
 static_file = config.static_path('style.css')     # /project/static/style.css
 
-# Any directory name works!
+# Any directory name works! (Ruby on Rails style)
 config.backups_path('backup.tar.gz')             # /project/backups/backup.tar.gz
 config.downloads_path('file.pdf')                # /project/downloads/file.pdf
+config.assets_path('logo.png')                   # /project/assets/logo.png
+config.exports_path()                            # /project/exports/
+
+# How it works:
+# 1. Python calls config.__getattr__('cache_path')
+# 2. Detects '_path' suffix
+# 3. Extracts 'cache' as directory name
+# 4. Returns a function that creates /project/cache/* paths
 ```
 
 ### Smart Type Conversion
