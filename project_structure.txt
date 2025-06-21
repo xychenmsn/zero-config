@@ -1,0 +1,7 @@
+simple_config/
+├── simple_config/
+│   ├── __init__.py
+│   └── config.py
+├── pyproject.toml
+├── README.md
+└── LICENSE

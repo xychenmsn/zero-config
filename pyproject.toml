@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "zero-config"
+version = "0.1.0"
+description = "A zero-configuration library with smart environment variable support and type-aware defaults"
+readme = "README.md"
+authors = [{name = "Zero Config Team", email = "team@zero-config.dev"}]
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Systems Administration",
+]
+requires-python = ">=3.7"
+dependencies = [
+    "python-dotenv>=0.19.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=6.0",
+    "pytest-cov>=2.0",
+    "black>=21.0",
+    "flake8>=3.8",
+    "mypy>=0.800",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/zero-config/zero-config"
+"Bug Tracker" = "https://github.com/zero-config/zero-config/issues"
+"Documentation" = "https://zero-config.readthedocs.io/"
