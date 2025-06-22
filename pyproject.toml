@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "zero-config"
-version = "0.1.0"
+version = "0.1.1"
 description = "A zero-configuration library with smart environment variable support and type-aware defaults"
 readme = "README.md"
 authors = [{name = "Michael Chen", email = "xychen@msn.com"}]

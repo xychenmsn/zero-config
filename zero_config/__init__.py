@@ -3,7 +3,7 @@ from .config import (
     get_config,
 )
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 # Public API - what users should import
 __all__ = [
