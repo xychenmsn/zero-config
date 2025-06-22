@@ -209,15 +209,105 @@ def apply_environment_variables(config: Dict[str, Any]) -> None:
                 config[config_key] = smart_convert(env_value, config[config_key])
                 logging.debug(f"Environment override: {env_var} -> {config_key} = {config[config_key]}")
 
+def _load_env_file_data(project_root: Path, env_files: Optional[Union[str, Path, list[Union[str, Path]]]]) -> Dict[str, str]:
+    """Load environment files and return their data as a dictionary."""
+    env_data = {}
+    files_to_load = []
+
+    if env_files is None:
+        # Default: look for .env.zero_config in project root
+        default_env_file = project_root / ".env.zero_config"
+        if default_env_file.exists():
+            files_to_load.append(default_env_file)
+    else:
+        # Handle single file or list of files
+        if isinstance(env_files, (str, Path)):
+            env_files = [env_files]
+
+        for env_file in env_files:
+            env_path = Path(env_file)
+            # If relative path, make it relative to project root
+            if not env_path.is_absolute():
+                env_path = project_root / env_path
+
+            if env_path.exists():
+                files_to_load.append(env_path)
+            else:
+                logging.warning(f"Environment file not found: {env_path}")
+
+    # Load all found files (later files override earlier ones)
+    for env_file in files_to_load:
+        file_data = _parse_env_file(env_file)
+        env_data.update(file_data)  # Later files override earlier ones
+        logging.debug(f"Loaded {len(file_data)} variables from: {env_file}")
+
+    return env_data
+
+
+def _parse_env_file(env_file: Path) -> Dict[str, str]:
+    """Parse a single env file and return its data."""
+    env_vars = {}
+    try:
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    if '=' in line:
+                        key, value = line.split('=', 1)
+                        key = key.strip().lower()
+                        value = value.strip().strip('"\'')
+                        env_vars[key] = value
+    except Exception as e:
+        logging.error(f"Failed to load {env_file}: {e}")
+
+    return env_vars
+
+
+def _load_env_files(project_root: Path, env_files: Optional[Union[str, Path, list[Union[str, Path]]]]) -> None:
+    """Load environment files with flexible input handling."""
+    files_to_load = []
+
+    if env_files is None:
+        # Default: look for .env.zero_config in project root
+        default_env_file = project_root / ".env.zero_config"
+        if default_env_file.exists():
+            files_to_load.append(default_env_file)
+    else:
+        # Handle single file or list of files
+        if isinstance(env_files, (str, Path)):
+            env_files = [env_files]
+
+        for env_file in env_files:
+            env_path = Path(env_file)
+            # If relative path, make it relative to project root
+            if not env_path.is_absolute():
+                env_path = project_root / env_path
+
+            if env_path.exists():
+                files_to_load.append(env_path)
+            else:
+                logging.warning(f"Environment file not found: {env_path}")
+
+    # Load all found files
+    for env_file in files_to_load:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(env_file)
+            logging.debug(f"Loaded environment from: {env_file}")
+        except ImportError:
+            logging.debug(f"python-dotenv not available, skipping: {env_file}")
+
+
 def setup_environment(
-    start_path: Optional[Union[str, Path]] = None,
-    default_config: Optional[Dict[str, Any]] = None
+    default_config: Optional[Dict[str, Any]] = None,
+    env_files: Optional[Union[str, Path, list[Union[str, Path]]]] = None
 ) -> None:
     """Setup environment with flexible configuration layers.
 
     Args:
-        start_path: Starting path for project root detection
         default_config: Default configuration values to start with
+        env_files: Optional .env file(s) to load. Can be a single file path or list of file paths.
+                  If not provided, will look for .env.zero_config in project root.
     """
     global _config, _project_root
 
@@ -226,18 +316,11 @@ def setup_environment(
         _project_root = Path(os.environ['PROJECT_ROOT']).resolve()
         logging.info(f"Using PROJECT_ROOT from environment: {_project_root}")
     else:
-        _project_root = find_project_root(start_path)
+        _project_root = find_project_root()
         logging.info(f"Auto-detected project root: {_project_root}")
 
-    # Load .env.zero_config if exists (for python-dotenv compatibility)
-    env_file = _project_root / ".env.zero_config"
-    if env_file.exists():
-        try:
-            from dotenv import load_dotenv
-            load_dotenv(env_file)
-            logging.debug(f"Loaded environment from: {env_file}")
-        except ImportError:
-            logging.debug("python-dotenv not available, loading manually")
+    # 2. Load environment files
+    _load_env_files(_project_root, env_files)
 
     # Configuration priority (low to high):
     # 2. Default values (user-provided or empty)
@@ -249,23 +332,23 @@ def setup_environment(
     # 4. OS environment variables
     apply_environment_variables(config_data)
 
-    # 5. .env.zero_config file (highest priority)
-    domain_env = load_domain_env_file(_project_root)
-    for key, str_value in domain_env.items():
+    # 5. Load env files (custom files or default .env.zero_config)
+    env_data = _load_env_file_data(_project_root, env_files)
+    for key, str_value in env_data.items():
         # Skip project_root - it's already set and should not be overridden by .env file
         if key == 'project_root':
-            logging.warning(f"Ignoring project_root in .env.zero_config - use PROJECT_ROOT env var instead")
+            logging.warning(f"Ignoring project_root in env file - use PROJECT_ROOT env var instead")
             continue
 
-        # Domain env file keys are already in the correct format (llm.models)
+        # Env file keys are already in the correct format (llm.models)
         if key in config_data:
             # Use smart conversion based on existing default value type
             config_data[key] = smart_convert(str_value, config_data[key])
-            logging.debug(f"Domain env override: {key} = {config_data[key]}")
+            logging.debug(f"Env file override: {key} = {config_data[key]}")
         else:
             # Add new key as string
             config_data[key] = str_value
-            logging.debug(f"Domain env addition: {key} = {str_value}")
+            logging.debug(f"Env file addition: {key} = {str_value}")
 
     # 6. Create config object
     _config = Config(config_data, _project_root)
@@ -280,10 +363,3 @@ def get_config() -> Config:
         raise RuntimeError("Configuration not initialized. Call setup_environment() first.")
     return _config
 
-def data_path(filename: str = "") -> str:
-    """Get data directory path using dynamic path helper."""
-    return get_config().data_path(filename)
-
-def logs_path(filename: str = "") -> str:
-    """Get logs directory path using dynamic path helper."""
-    return get_config().logs_path(filename)

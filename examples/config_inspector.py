@@ -9,7 +9,7 @@ import argparse
 import json
 import sys
 from pathlib import Path
-from zero_config import setup_environment, get_config, DEFAULTS
+from zero_config import setup_environment, get_config
 
 
 def inspect_config(show_all=False, show_defaults=False, format_json=False):
@@ -25,10 +25,8 @@ def inspect_config(show_all=False, show_defaults=False, format_json=False):
     if show_defaults:
         print("📋 Default Configuration:")
         print("=" * 50)
-        data = DEFAULTS
-        if not data:
-            print("Zero Config uses no built-in defaults - configuration comes from environment variables and .env.zero_config files.")
-            return 0
+        print("Zero Config uses no built-in defaults - configuration comes from environment variables and .env.zero_config files.")
+        return 0
     else:
         print("📋 Current Configuration:")
         print("=" * 50)

@@ -4,14 +4,12 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch
 
-from zero_config import (
-    setup_environment,
-    get_config,
-    data_path,
-    logs_path,
+from zero_config import setup_environment, get_config
+from zero_config.config import (
+    Config,
     smart_convert,
     find_project_root,
-    load_domain_env_file
+    load_domain_env_file,
 )
 
 
@@ -253,19 +251,20 @@ class TestConfiguration:
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
                 setup_environment()
-                
-                # Test data_path
-                data_dir = data_path()
+                config = get_config()
+
+                # Test data_path via dynamic path helper
+                data_dir = config.data_path()
                 assert data_dir == str(Path(tmpdir) / "data")
-                
-                data_file = data_path("test.db")
+
+                data_file = config.data_path("test.db")
                 assert data_file == str(Path(tmpdir) / "data" / "test.db")
-                
-                # Test logs_path
-                logs_dir = logs_path()
+
+                # Test logs_path via dynamic path helper
+                logs_dir = config.logs_path()
                 assert logs_dir == str(Path(tmpdir) / "logs")
-                
-                log_file = logs_path("app.log")
+
+                log_file = config.logs_path("app.log")
                 assert log_file == str(Path(tmpdir) / "logs" / "app.log")
 
     def test_dynamic_path_helpers(self):
@@ -521,6 +520,40 @@ other_key=should_work
 
                     # other_key should work normally
                     assert config.get('other_key') == 'should_work'
+
+    def test_custom_env_files(self):
+        """Test loading custom env files via env_files parameter."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            # Create custom env files
+            env1 = tmpdir_path / "custom1.env"
+            env1.write_text("key1=value1\nshared_key=from_env1")
+
+            env2 = tmpdir_path / "custom2.env"
+            env2.write_text("key2=value2\nshared_key=from_env2")
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Test single env file
+                    setup_environment(env_files=env1)
+                    config = get_config()
+
+                    assert config.get('key1') == 'value1'
+                    assert config.get('shared_key') == 'from_env1'
+                    assert config.get('key2') is None
+
+                    # Reset for next test
+                    import zero_config.config
+                    zero_config.config._config = None
+
+                    # Test multiple env files (later files override earlier ones)
+                    setup_environment(env_files=[env1, env2])
+                    config = get_config()
+
+                    assert config.get('key1') == 'value1'
+                    assert config.get('key2') == 'value2'
+                    assert config.get('shared_key') == 'from_env2'  # env2 overrides env1
 
 
 if __name__ == "__main__":

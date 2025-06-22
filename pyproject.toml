@@ -7,7 +7,7 @@ name = "zero-config"
 version = "0.1.0"
 description = "A zero-configuration library with smart environment variable support and type-aware defaults"
 readme = "README.md"
-authors = [{name = "Zero Config Team", email = "team@zero-config.dev"}]
+authors = [{name = "Michael Chen", email = "xychen@msn.com"}]
 license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3",

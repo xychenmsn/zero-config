@@ -6,7 +6,7 @@ This example demonstrates how to use zero_config in a typical application.
 """
 
 import os
-from zero_config import setup_environment, get_config, data_path, logs_path
+from zero_config import setup_environment, get_config
 
 
 def main():
@@ -70,17 +70,13 @@ def main():
     else:
         print("No configuration values set. Try setting some environment variables!")
     
-    # Demonstrate path helpers
-    print(f"\n📁 Path Helpers:")
-    print("-" * 16)
-    print(f"Data Directory: {data_path()}")
-    print(f"Database Path: {data_path('app.db')}")
-    print(f"Logs Directory: {logs_path()}")
-    print(f"Log File Path: {logs_path('app.log')}")
-
-    # Demonstrate dynamic path helpers
-    print(f"\n🔧 Dynamic Path Helpers:")
+    # Demonstrate dynamic path helpers (Ruby on Rails style)
+    print(f"\n📁 Dynamic Path Helpers:")
     print("-" * 25)
+    print(f"Data Directory: {config.data_path()}")
+    print(f"Database Path: {config.data_path('app.db')}")
+    print(f"Logs Directory: {config.logs_path()}")
+    print(f"Log File Path: {config.logs_path('app.log')}")
     print(f"Cache Directory: {config.cache_path()}")
     print(f"Cache File: {config.cache_path('session.json')}")
     print(f"Temp Directory: {config.temp_path()}")
