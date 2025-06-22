@@ -374,6 +374,86 @@ class TestConfiguration:
                 simple_config = config.get_section('simple')
                 assert simple_config == {}  # 'simple_key' doesn't match 'simple.*'
 
+    def test_edge_cases_and_safety(self):
+        """Test edge cases and safety features of type conversion."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                # Test with edge case values
+                default_config = {
+                    'database_url': '',
+                    'welcome_message': '',
+                    'api_endpoint': '',
+                    'csv_data': '',
+                    'models': [],
+                    'port': 8000,
+                    'temperature': 0.0,
+                    'debug': False,
+                }
+
+                with patch.dict(os.environ, {
+                    # Test comma-containing strings stay safe
+                    'DATABASE_URL': 'postgresql://host1,host2,host3/db',
+                    'WELCOME_MESSAGE': 'Hello, welcome to our app!',
+                    'API_ENDPOINT': 'https://api.com/search?q=item1,item2&format=json',
+                    'CSV_DATA': 'name,age,city',
+
+                    # Test JSON lists work
+                    'MODELS': '["gpt-4", "claude-3"]',
+
+                    # Test number edge cases
+                    'PORT': '3000',
+                    'TEMPERATURE': '0.7',
+
+                    # Test boolean edge cases
+                    'DEBUG': 'enabled',
+                }, clear=True):
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Verify comma-containing strings are preserved
+                    assert config.get('database_url') == 'postgresql://host1,host2,host3/db'
+                    assert config.get('welcome_message') == 'Hello, welcome to our app!'
+                    assert config.get('api_endpoint') == 'https://api.com/search?q=item1,item2&format=json'
+                    assert config.get('csv_data') == 'name,age,city'
+
+                    # Verify JSON lists work
+                    assert config.get('models') == ['gpt-4', 'claude-3']
+
+                    # Verify number conversions
+                    assert config.get('port') == 3000
+                    assert isinstance(config.get('port'), int)
+                    assert config.get('temperature') == 0.7
+                    assert isinstance(config.get('temperature'), float)
+
+                    # Verify boolean conversion
+                    assert config.get('debug') == True
+                    assert isinstance(config.get('debug'), bool)
+
+    def test_invalid_conversions_fallback(self):
+        """Test that invalid conversions fall back gracefully."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                default_config = {
+                    'port': 8000,
+                    'temperature': 0.0,
+                    'debug': False,
+                }
+
+                with patch.dict(os.environ, {
+                    'PORT': 'not-a-number',
+                    'TEMPERATURE': 'not-a-float',
+                    'DEBUG': 'not-a-boolean',
+                }, clear=True):
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Invalid numbers should stay as strings
+                    assert config.get('port') == 'not-a-number'
+                    assert config.get('temperature') == 'not-a-float'
+
+                    # Invalid booleans should default to False
+                    assert config.get('debug') == False
+
 
 if __name__ == "__main__":
     pytest.main([__file__])

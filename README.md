@@ -4,12 +4,14 @@ A zero-configuration library with smart environment variable support and type-aw
 
 ## ✨ Features
 
-- **Zero Configuration**: Works out of the box with sensible defaults
-- **Smart Type Conversion**: Automatically converts environment variables to the correct Python types
-- **Multiple Configuration Sources**: Environment variables, `.env.zero_config` files, and programmatic overrides
-- **LLM-Ready**: Pre-configured with popular LLM providers (OpenAI, Anthropic, Google)
-- **Project Root Detection**: Automatically finds your project root
-- **Path Helpers**: Built-in data and logs directory management
+- **🛡️ Safety-First Type Conversion**: Comma-containing strings stay safe, only explicit JSON becomes lists
+- **🏗️ Section Headers**: Organize config with `llm.models` → `LLM__MODELS` environment variables
+- **🛤️ Dynamic Path Helpers**: Ruby on Rails style `config.cache_path()`, `config.models_path()` for any directory
+- **📦 Section Access**: Get entire config sections with `config.get_section('llm')`
+- **🎯 Smart Defaults**: Your application defines the configuration schema
+- **🔄 Multiple Sources**: Environment variables, `.env.zero_config` files, and programmatic config
+- **🔍 Project Root Detection**: Automatically finds your project root using `.git`, `pyproject.toml`, etc.
+- **⚡ Zero Dependencies**: Only requires `python-dotenv` (optional)
 
 ## 🚀 Quick Start
 
@@ -155,7 +157,7 @@ config.exports_path()                            # /project/exports/
 
 ### Smart Type Conversion
 
-Zero Config automatically converts environment variables to match your default config types:
+Zero Config automatically converts environment variables to match your default config types with safety-first approach:
 
 ```python
 # Your default config defines the types
@@ -163,7 +165,9 @@ default_config = {
     'temperature': 0.0,      # float
     'max_tokens': 1024,      # int
     'debug': False,          # bool
-    'models': ['gpt-4']      # list
+    'models': ['gpt-4'],     # list
+    'database_url': '',      # string
+    'welcome_message': ''    # string
 }
 
 # Environment variables are converted to match default types
@@ -173,6 +177,75 @@ default_config = {
 # export MODELS='["gpt-4", "claude-3"]'       → list: ['gpt-4', 'claude-3'] (JSON only)
 # export DATABASE_URL="host1,host2,host3"     → string: "host1,host2,host3" (safe!)
 # export WELCOME="Hello, world!"              → string: "Hello, world!" (safe!)
+```
+
+#### Type Conversion Details
+
+**Numbers (int, float):**
+
+```bash
+export PORT="8000"        # → int: 8000
+export TEMPERATURE="0.7"  # → float: 0.7
+export PORT="invalid"     # → string: "invalid" (safe fallback)
+```
+
+**Booleans:**
+
+```bash
+export DEBUG="true"    # → bool: True
+export DEBUG="1"       # → bool: True
+export DEBUG="yes"     # → bool: True
+export DEBUG="on"      # → bool: True
+export DEBUG="enabled" # → bool: True
+export DEBUG="false"   # → bool: False
+export DEBUG="0"       # → bool: False
+export DEBUG="invalid" # → bool: False (safe fallback)
+```
+
+**Lists (JSON-only for safety):**
+
+```bash
+# ✅ Explicit JSON format (only supported)
+export MODELS='["gpt-4", "claude-3"]'     # → list: ['gpt-4', 'claude-3']
+
+# ✅ Comma-containing strings stay safe
+export DATABASE_URL="host1,host2,host3"   # → string: "host1,host2,host3"
+export WELCOME="Hello, world!"            # → string: "Hello, world!"
+export API_ENDPOINT="api.com?q=a,b,c"     # → string: "api.com?q=a,b,c"
+```
+
+### Section Configuration Access
+
+Get entire configuration sections with clean, prefix-free keys:
+
+```python
+# Default config with sections
+default_config = {
+    'llm.models': ['gpt-4o-mini'],
+    'llm.temperature': 0.0,
+    'llm.max_tokens': 1024,
+    'database.host': 'localhost',
+    'database.port': 5432,
+    'cache.enabled': True,
+    'cache.ttl': 3600,
+}
+
+setup_environment(default_config=default_config)
+config = get_config()
+
+# Get entire sections
+llm_config = config.get_section('llm')
+# Returns: {'models': ['gpt-4o-mini'], 'temperature': 0.0, 'max_tokens': 1024}
+
+database_config = config.get_section('database')
+# Returns: {'host': 'localhost', 'port': 5432}
+
+cache_config = config.get_section('cache')
+# Returns: {'enabled': True, 'ttl': 3600}
+
+# Access individual values from sections
+models = llm_config.get('models')  # ['gpt-4o-mini']
+db_host = database_config.get('host')  # 'localhost'
 ```
 
 ### Custom Project Root
@@ -214,6 +287,59 @@ mypy zero_config/
 ## 📄 License
 
 MIT License - see [LICENSE](LICENSE) file for details.
+
+## 📚 Quick Reference
+
+### Type Conversion Summary
+
+```bash
+# Numbers
+export PORT="8000"        # → int: 8000
+export TEMP="0.7"         # → float: 0.7
+
+# Booleans
+export DEBUG="true"       # → bool: True
+export ENABLED="false"    # → bool: False
+
+# Lists (JSON only - safe!)
+export MODELS='["a","b"]' # → list: ['a', 'b']
+export URLS="a,b,c"       # → string: "a,b,c" (safe!)
+
+# Section Headers
+export LLM__MODELS='["gpt-4"]'  # → llm.models
+export DB__HOST="localhost"     # → database.host
+```
+
+### API Reference
+
+```python
+# Setup
+setup_environment(default_config={...})
+config = get_config()
+
+# Access
+config.get('key', default)
+config['key']  # Raises KeyError if missing
+config.get_section('llm')  # Get all llm.* keys
+
+# Dynamic Paths (Ruby on Rails style)
+config.cache_path('file.txt')    # /project/cache/file.txt
+config.models_path()             # /project/models/
+config.any_name_path('file')     # /project/any_name/file
+```
+
+### Safety Examples
+
+```python
+# ✅ These stay as safe strings
+DATABASE_URL="host1,host2,host3"     # String with commas
+WELCOME="Hello, world!"             # Natural language
+API_URL="api.com?q=a,b,c"           # Query parameters
+
+# ✅ Explicit lists work perfectly
+MODELS='["gpt-4", "claude-3"]'      # JSON array
+SERVERS='["web1", "web2"]'          # JSON array
+```
 
 ## 🤝 Contributing
 
