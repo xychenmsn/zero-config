@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.3] - 2025-01-22
+
+### Added
+
+- Complete documentation package inclusion via MANIFEST.in
+- All documentation files now included in source distribution
+- Examples directory with demo scripts included
+- CHANGELOG.md and release notes included
+
+### Fixed
+
+- Documentation files (docs/, examples/) now properly included in PyPI package
+- Users can now access all guides and examples after installation
+
 ## [0.1.2] - 2025-01-22
 
 ### Added
