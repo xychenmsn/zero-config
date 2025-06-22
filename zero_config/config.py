@@ -198,6 +198,11 @@ def apply_environment_variables(config: Dict[str, Any]) -> None:
                 # Regular key: TEMPERATURE -> temperature
                 config_key = env_var.lower()
 
+            # Skip project_root - it's already set and should not be overridden
+            if config_key == 'project_root':
+                logging.debug(f"Skipping {env_var} - project_root is handled separately")
+                continue
+
             # Only apply if we have a corresponding config key (from defaults or .env)
             if config_key in config:
                 # Use smart conversion based on the existing default value type
@@ -216,8 +221,13 @@ def setup_environment(
     """
     global _config, _project_root
 
-    # Find project root
-    _project_root = find_project_root(start_path)
+    # 1. Determine project root (env var override or auto-detection)
+    if 'PROJECT_ROOT' in os.environ:
+        _project_root = Path(os.environ['PROJECT_ROOT']).resolve()
+        logging.info(f"Using PROJECT_ROOT from environment: {_project_root}")
+    else:
+        _project_root = find_project_root(start_path)
+        logging.info(f"Auto-detected project root: {_project_root}")
 
     # Load .env.zero_config if exists (for python-dotenv compatibility)
     env_file = _project_root / ".env.zero_config"
@@ -230,15 +240,23 @@ def setup_environment(
             logging.debug("python-dotenv not available, loading manually")
 
     # Configuration priority (low to high):
-    # 1. Default values (user-provided or empty)
+    # 2. Default values (user-provided or empty)
     config_data = (default_config or {}).copy()
 
-    # 2. OS environment variables
+    # 3. Always add project_root (from env or auto-detected, as absolute path)
+    config_data['project_root'] = str(_project_root)
+
+    # 4. OS environment variables
     apply_environment_variables(config_data)
 
-    # 3. .env.zero_config file (highest priority)
+    # 5. .env.zero_config file (highest priority)
     domain_env = load_domain_env_file(_project_root)
     for key, str_value in domain_env.items():
+        # Skip project_root - it's already set and should not be overridden by .env file
+        if key == 'project_root':
+            logging.warning(f"Ignoring project_root in .env.zero_config - use PROJECT_ROOT env var instead")
+            continue
+
         # Domain env file keys are already in the correct format (llm.models)
         if key in config_data:
             # Use smart conversion based on existing default value type
@@ -249,7 +267,7 @@ def setup_environment(
             config_data[key] = str_value
             logging.debug(f"Domain env addition: {key} = {str_value}")
 
-    # 4. Create config object
+    # 6. Create config object
     _config = Config(config_data, _project_root)
 
     logging.info(f"🚀 Environment setup complete")

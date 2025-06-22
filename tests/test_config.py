@@ -179,14 +179,16 @@ class TestConfiguration:
     
     def test_defaults_loaded(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+            tmpdir_path = Path(tmpdir).resolve()
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
                 # Clear environment variables that might interfere
                 with patch.dict(os.environ, {}, clear=True):
                     setup_environment()
                     config = get_config()
 
-                    # Zero config starts with empty defaults
-                    assert config.to_dict() == {}
+                    # Zero config starts with only project_root (automatically added)
+                    expected = {'project_root': str(tmpdir_path)}
+                    assert config.to_dict() == expected
 
                     # But can still access non-existent keys with defaults
                     assert config.get('nonexistent_key', 'default') == 'default'
@@ -453,6 +455,72 @@ class TestConfiguration:
 
                     # Invalid booleans should default to False
                     assert config.get('debug') == False
+
+    def test_project_root_in_config(self):
+        """Test that project_root is always available in config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()  # Resolve symlinks for consistent comparison
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    setup_environment()
+                    config = get_config()
+
+                    # project_root should always be in config
+                    assert 'project_root' in config
+                    assert config.get('project_root') == str(tmpdir_path)
+                    assert config['project_root'] == str(tmpdir_path)
+
+                    # project_root should be in to_dict()
+                    config_dict = config.to_dict()
+                    assert 'project_root' in config_dict
+                    assert config_dict['project_root'] == str(tmpdir_path)
+
+    def test_project_root_env_override(self):
+        """Test that PROJECT_ROOT environment variable overrides auto-detection."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            custom_root = tmpdir_path / "custom_project_root"
+            custom_root.mkdir()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    'PROJECT_ROOT': str(custom_root)
+                }, clear=True):
+                    setup_environment()
+                    config = get_config()
+
+                    # Should use PROJECT_ROOT env var, not auto-detected
+                    expected_root = str(custom_root.resolve())
+                    assert config.get('project_root') == expected_root
+                    assert config['project_root'] == expected_root
+
+                    # Should be in to_dict()
+                    config_dict = config.to_dict()
+                    assert config_dict['project_root'] == expected_root
+
+    def test_project_root_env_file_ignored(self):
+        """Test that project_root in .env.zero_config is ignored."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            env_file = tmpdir_path / ".env.zero_config"
+
+            # Create .env file with project_root (should be ignored)
+            env_content = """
+project_root=/should/be/ignored
+other_key=should_work
+"""
+            env_file.write_text(env_content)
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    setup_environment()
+                    config = get_config()
+
+                    # project_root should be auto-detected, not from .env file
+                    assert config.get('project_root') == str(tmpdir_path)
+
+                    # other_key should work normally
+                    assert config.get('other_key') == 'should_work'
 
 
 if __name__ == "__main__":

@@ -248,14 +248,40 @@ models = llm_config.get('models')  # ['gpt-4o-mini']
 db_host = database_config.get('host')  # 'localhost'
 ```
 
-### Custom Project Root
+### Project Root Configuration
+
+Zero-config automatically detects your project root, but you can override it:
 
 ```python
-from zero_config import setup_environment
+from zero_config import setup_environment, get_config
 from pathlib import Path
 
-# Specify custom project root
+# Method 1: Environment variable (recommended)
+# export PROJECT_ROOT="/path/to/my/project"
+setup_environment()
+config = get_config()
+print(config.get('project_root'))  # Always available as config item
+
+# Method 2: Programmatic override
 setup_environment(start_path="/path/to/my/project")
+
+# Method 3: Relative paths are resolved to absolute
+# export PROJECT_ROOT="./my_project"  # Becomes /full/path/to/my_project
+```
+
+**For Library Usage:**
+
+```python
+# Libraries get project_root automatically in config dict
+def my_library_function(config: dict):
+    project_root = config['project_root']  # Always absolute path
+    log_file = os.path.join(project_root, 'logs', 'my_lib.log')
+    cache_file = os.path.join(project_root, 'cache', 'my_lib.cache')
+    return {'log_file': log_file, 'cache_file': cache_file}
+
+# Application passes config to library
+config_dict = config.to_dict()  # Contains project_root automatically
+result = my_library_function(config_dict)
 ```
 
 ## 📦 Installation
@@ -308,6 +334,9 @@ export URLS="a,b,c"       # → string: "a,b,c" (safe!)
 # Section Headers
 export LLM__MODELS='["gpt-4"]'  # → llm.models
 export DB__HOST="localhost"     # → database.host
+
+# Project Root Override
+export PROJECT_ROOT="/custom/path"  # → project_root (always absolute)
 ```
 
 ### API Reference
@@ -321,6 +350,7 @@ config = get_config()
 config.get('key', default)
 config['key']  # Raises KeyError if missing
 config.get_section('llm')  # Get all llm.* keys
+config.get('project_root')  # Always available, always absolute path
 
 # Dynamic Paths (Ruby on Rails style)
 config.cache_path('file.txt')    # /project/cache/file.txt
