@@ -146,13 +146,84 @@ Environment variables are automatically converted to match your default types:
 pip install zero-config
 ```
 
+## 🛡️ Package Conflict Prevention
+
+**Critical for libraries**: Zero Config prevents configuration conflicts when both your main project and its dependencies use zero-config.
+
+### The Problem
+
+Without protection, packages can accidentally overwrite your main project's configuration:
+
+```python
+# ❌ Without protection (old behavior)
+# Main project sets up config
+setup_environment(default_config={'app_name': 'news_app', 'llm.api_key': 'main-key'})
+
+# Package dependency overwrites everything!
+setup_environment(default_config={'package_name': 'united_llm'})
+
+# Main project's config is lost 😱
+config = get_config()
+print(config.get('app_name'))  # None - lost!
+```
+
+### The Solution
+
+Zero Config now automatically prevents this:
+
+```python
+# ✅ With protection (new behavior)
+# Main project initializes first
+setup_environment(default_config={'app_name': 'news_app', 'llm.api_key': 'main-key'})
+
+# Package dependency tries to initialize (safely ignored)
+setup_environment(default_config={'package_name': 'united_llm'})  # ← Ignored!
+
+# Main project's config is preserved 🎉
+config = get_config()
+print(config.get('app_name'))      # "news_app" (preserved)
+print(config.get('package_name'))  # None (package config ignored)
+```
+
+### How It Works
+
+1. **First Call Wins**: The first `setup_environment()` call initializes the global configuration
+2. **Automatic Protection**: Subsequent calls are automatically ignored with helpful logging
+3. **Shared Access**: Packages can still access the main project's configuration
+4. **Override Available**: Use `force_reinit=True` only for testing or special cases
+
+### Best Practices
+
+**For Main Applications:**
+
+```python
+# Initialize early in your main application
+def main():
+    setup_environment(default_config=your_app_config)
+    # ... rest of your app
+```
+
+**For Package Libraries:**
+
+```python
+# Packages should call setup_environment but expect it might be ignored
+def initialize_package():
+    # This will be ignored if main app already initialized
+    setup_environment(default_config=package_defaults)
+
+    # Always access config this way
+    config = get_config()
+    return config.get('llm')  # Access main app's LLM config
+```
+
 ## 🔗 API Reference
 
 ```python
 # Setup
 setup_environment(
     default_config={...},           # Your app's defaults
-    env_files="custom.env"          # Optional: custom env file(s)
+    env_files="custom.env",         # Optional: custom env file(s)
+    force_reinit=False              # Force re-init (use with caution)
 )
 
 # Access
@@ -162,8 +233,102 @@ config['key']                      # Direct access (raises KeyError if missing)
 config.get('llm')                 # Get all llm.* keys as dict
 config.to_dict()                   # Get all config as dict
 
+# Initialization status
+is_initialized()                   # Check if already initialized
+get_initialization_info()          # Get info about who initialized
+
 # Dynamic paths (Ruby on Rails style)
 config.data_path('file.db')        # /project/data/file.db
 config.logs_path('app.log')        # /project/logs/app.log
 config.any_name_path('file')       # /project/any_name/file
+```
+
+## 🔍 Debugging & Troubleshooting
+
+### Check Initialization Status
+
+```python
+from zero_config import is_initialized, get_initialization_info
+
+# Check if zero-config has been initialized
+if is_initialized():
+    print(f"Initialized by: {get_initialization_info()}")
+else:
+    print("Not yet initialized")
+```
+
+### Common Issues
+
+**Issue**: `RuntimeError: Configuration not initialized`
+
+```python
+# ❌ Trying to get config before setup
+config = get_config()  # Error!
+
+# ✅ Always call setup_environment first
+setup_environment()
+config = get_config()  # Works!
+```
+
+**Issue**: Package config not working
+
+```python
+# ❌ Package trying to override main config
+setup_environment(default_config=package_config)  # Ignored!
+
+# ✅ Package accessing main config
+setup_environment(default_config=package_config)  # Ignored (expected)
+config = get_config()  # Access main app's config
+llm_config = config.get('llm')  # Get LLM section from main app
+```
+
+**Issue**: Need to reset for testing
+
+```python
+# ✅ For testing only
+from zero_config.config import _reset_for_testing
+
+def test_something():
+    _reset_for_testing()  # Reset global state
+    setup_environment(test_config)
+    # ... test code
+```
+
+### Logging
+
+Zero Config provides helpful logging. Enable it to see what's happening:
+
+```python
+import logging
+logging.basicConfig(level=logging.INFO)
+
+setup_environment(default_config=config)
+# INFO: Auto-detected project root: /path/to/project
+# INFO: 🚀 Environment setup complete
+```
+
+## 🚀 Migration Guide
+
+### From v0.1.0 to v0.1.1+
+
+**No breaking changes!** Your existing code continues to work. New features:
+
+- ✅ Automatic package conflict prevention
+- ✅ New `is_initialized()` and `get_initialization_info()` functions
+- ✅ New `force_reinit=True` parameter for special cases
+
+### Upgrading Your Package
+
+If you maintain a package that uses zero-config:
+
+```python
+# Before (still works)
+def initialize():
+    setup_environment(default_config=defaults)
+
+# After (recommended - more explicit)
+def initialize():
+    if not is_initialized():
+        setup_environment(default_config=defaults)
+    return get_config()
 ```

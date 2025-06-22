@@ -1,15 +1,16 @@
 import os
 import tempfile
 import pytest
+import logging
 from pathlib import Path
 from unittest.mock import patch
 
-from zero_config import setup_environment, get_config
+from zero_config import setup_environment, get_config, is_initialized, get_initialization_info
 from zero_config.config import (
-    Config,
     smart_convert,
     find_project_root,
     load_domain_env_file,
+    _reset_for_testing,
 )
 
 
@@ -181,6 +182,9 @@ class TestConfiguration:
             with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
                 # Clear environment variables that might interfere
                 with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment()
                     config = get_config()
 
@@ -210,6 +214,9 @@ class TestConfiguration:
                     'DEBUG': 'true',
                     'MODELS': '["gpt-4", "claude-3"]'
                 }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment(default_config=default_config)
                     config = get_config()
 
@@ -229,6 +236,9 @@ class TestConfiguration:
                 default_config = {'test_key': 'default_value'}
 
                 with patch.dict(os.environ, {'TEST_KEY': 'test_value'}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment(default_config=default_config)
                     config = get_config()
 
@@ -250,6 +260,9 @@ class TestConfiguration:
     def test_path_helpers(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                # Reset state first
+                _reset_for_testing()
+
                 setup_environment()
                 config = get_config()
 
@@ -270,6 +283,9 @@ class TestConfiguration:
     def test_dynamic_path_helpers(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
+                # Reset state first
+                _reset_for_testing()
+
                 setup_environment()
                 config = get_config()
 
@@ -312,6 +328,9 @@ class TestConfiguration:
                     'DATABASE__PORT': '3306',
                     'SIMPLE_KEY': 'overridden'
                 }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment(default_config=default_config)
                     config = get_config()
 
@@ -337,6 +356,9 @@ class TestConfiguration:
                     'cache.enabled': True,
                     'cache.ttl': 3600
                 }
+
+                # Reset state first
+                _reset_for_testing()
 
                 setup_environment(default_config=default_config)
                 config = get_config()
@@ -412,6 +434,9 @@ class TestConfiguration:
                     # Test boolean edge cases
                     'DEBUG': 'enabled',
                 }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment(default_config=default_config)
                     config = get_config()
 
@@ -449,6 +474,9 @@ class TestConfiguration:
                     'TEMPERATURE': 'not-a-float',
                     'DEBUG': 'not-a-boolean',
                 }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment(default_config=default_config)
                     config = get_config()
 
@@ -465,6 +493,9 @@ class TestConfiguration:
             tmpdir_path = Path(tmpdir).resolve()  # Resolve symlinks for consistent comparison
             with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
                 with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment()
                     config = get_config()
 
@@ -489,6 +520,9 @@ class TestConfiguration:
                 with patch.dict(os.environ, {
                     'PROJECT_ROOT': str(custom_root)
                 }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment()
                     config = get_config()
 
@@ -516,6 +550,9 @@ other_key=should_work
 
             with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
                 with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     setup_environment()
                     config = get_config()
 
@@ -539,6 +576,9 @@ other_key=should_work
 
             with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
                 with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
                     # Test single env file
                     setup_environment(env_files=env1)
                     config = get_config()
@@ -548,8 +588,7 @@ other_key=should_work
                     assert config.get('key2') is None
 
                     # Reset for next test
-                    import zero_config.config
-                    zero_config.config._config = None
+                    _reset_for_testing()
 
                     # Test multiple env files (later files override earlier ones)
                     setup_environment(env_files=[env1, env2])
@@ -558,6 +597,315 @@ other_key=should_work
                     assert config.get('key1') == 'value1'
                     assert config.get('key2') == 'value2'
                     assert config.get('shared_key') == 'from_env2'  # env2 overrides env1
+
+
+class TestInitializationProtection:
+    """Test the initialization protection mechanism."""
+
+    def test_multiple_setup_calls_protection(self):
+        """Test that subsequent setup_environment calls are ignored."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # First call should work
+                    assert not is_initialized()
+                    setup_environment(default_config={'key1': 'value1'})
+                    assert is_initialized()
+
+                    config = get_config()
+                    assert config.get('key1') == 'value1'
+
+                    # Second call should be ignored
+                    setup_environment(default_config={'key2': 'value2'})
+
+                    # Config should still have only the first setup
+                    config = get_config()
+                    assert config.get('key1') == 'value1'
+                    assert config.get('key2') is None  # Should not be added
+
+    def test_force_reinit_parameter(self):
+        """Test that force_reinit=True allows re-initialization."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # First call
+                    setup_environment(default_config={'key1': 'value1'})
+                    config = get_config()
+                    assert config.get('key1') == 'value1'
+
+                    # Second call with force_reinit=True should work
+                    setup_environment(default_config={'key2': 'value2'}, force_reinit=True)
+
+                    # Config should now have the new setup
+                    config = get_config()
+                    assert config.get('key1') is None  # Should be gone
+                    assert config.get('key2') == 'value2'  # Should be added
+
+    def test_initialization_info_tracking(self):
+        """Test that initialization info is properly tracked."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Before initialization
+                    assert not is_initialized()
+                    assert get_initialization_info() is None
+
+                    # After initialization
+                    setup_environment()
+                    assert is_initialized()
+
+                    init_info = get_initialization_info()
+                    assert init_info is not None
+                    assert 'test_config.py' in init_info  # Should contain this test file
+                    assert ':' in init_info  # Should have line number
+
+    def test_package_dependency_scenario(self):
+        """Test the main use case: main project + package both using zero-config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Simulate main project initialization
+                    main_config = {
+                        'app_name': 'news_app',
+                        'database.host': 'localhost',
+                        'llm.api_key': 'main-key'
+                    }
+                    setup_environment(default_config=main_config)
+
+                    # Verify main project config
+                    config = get_config()
+                    assert config.get('app_name') == 'news_app'
+                    assert config.get('database.host') == 'localhost'
+                    assert config.get('llm.api_key') == 'main-key'
+
+                    # Simulate package (united_llm) trying to initialize
+                    package_config = {
+                        'llm.temperature': 0.7,
+                        'llm.max_tokens': 2048,
+                        'package_name': 'united_llm'
+                    }
+                    setup_environment(default_config=package_config)  # Should be ignored
+
+                    # Config should still be from main project
+                    config = get_config()
+                    assert config.get('app_name') == 'news_app'  # Main project config preserved
+                    assert config.get('database.host') == 'localhost'  # Main project config preserved
+                    assert config.get('llm.api_key') == 'main-key'  # Main project config preserved
+
+                    # Package-specific config should NOT be added
+                    assert config.get('package_name') is None
+                    assert config.get('llm.temperature') is None
+                    assert config.get('llm.max_tokens') is None
+
+                    # But package can still access the main project's config
+                    llm_section = config.get('llm')
+                    assert llm_section == {'api_key': 'main-key'}
+
+    def test_logging_output(self, caplog):
+        """Test that helpful logging messages are generated."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # First initialization should log success
+                    with caplog.at_level(logging.INFO):
+                        setup_environment(default_config={'key1': 'value1'})
+
+                    assert "🚀 Environment setup complete" in caplog.text
+                    assert "Initialized by:" in caplog.text
+
+                    # Clear logs
+                    caplog.clear()
+
+                    # Second initialization should log that it's skipped
+                    with caplog.at_level(logging.INFO):
+                        setup_environment(default_config={'key2': 'value2'})
+
+                    assert "Zero-config already initialized" in caplog.text
+                    assert "Skipping re-initialization to prevent conflicts" in caplog.text
+
+    def test_multiple_packages_scenario(self):
+        """Test scenario with multiple packages trying to initialize."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Main project initializes
+                    main_config = {
+                        'app_name': 'main_app',
+                        'llm.api_key': 'main-key',
+                        'database.host': 'localhost'
+                    }
+                    setup_environment(default_config=main_config)
+
+                    # First package tries to initialize
+                    package1_config = {
+                        'package1.name': 'united_llm',
+                        'package1.version': '1.0.0',
+                        'llm.temperature': 0.7  # Different from main
+                    }
+                    setup_environment(default_config=package1_config)  # Should be ignored
+
+                    # Second package tries to initialize
+                    package2_config = {
+                        'package2.name': 'data_processor',
+                        'package2.version': '2.0.0',
+                        'database.timeout': 30  # Different from main
+                    }
+                    setup_environment(default_config=package2_config)  # Should be ignored
+
+                    # Verify only main config is present
+                    config = get_config()
+                    assert config.get('app_name') == 'main_app'
+                    assert config.get('llm.api_key') == 'main-key'
+                    assert config.get('database.host') == 'localhost'
+
+                    # Package configs should not be present
+                    assert config.get('package1.name') is None
+                    assert config.get('package2.name') is None
+                    assert config.get('llm.temperature') is None
+                    assert config.get('database.timeout') is None
+
+    def test_force_reinit_with_different_project_root(self):
+        """Test force re-initialization with different project root."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path1 = Path(tmpdir) / "project1"
+            tmpdir_path2 = Path(tmpdir) / "project2"
+            tmpdir_path1.mkdir()
+            tmpdir_path2.mkdir()
+
+            # First initialization
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path1):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    setup_environment(default_config={'project': 'first'})
+                    config = get_config()
+                    assert config.get('project') == 'first'
+                    assert config.get('project_root') == str(tmpdir_path1)
+
+            # Force re-initialization with different project root
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path2):
+                with patch.dict(os.environ, {}, clear=True):
+                    setup_environment(
+                        default_config={'project': 'second'},
+                        force_reinit=True
+                    )
+                    config = get_config()
+                    assert config.get('project') == 'second'
+                    assert config.get('project_root') == str(tmpdir_path2)
+
+    def test_initialization_info_format(self):
+        """Test that initialization info has the expected format."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    setup_environment()
+
+                    init_info = get_initialization_info()
+                    assert init_info is not None
+
+                    # Should contain file path and line number
+                    assert '.py:' in init_info
+                    assert 'test_config.py' in init_info
+
+                    # Should be a valid file:line format
+                    parts = init_info.split(':')
+                    assert len(parts) >= 2
+                    assert parts[-1].isdigit()  # Line number should be numeric
+
+
+class TestEdgeCasesAndErrorHandling:
+    """Test edge cases and error handling scenarios."""
+
+    def test_get_config_before_setup(self):
+        """Test that get_config raises error before setup."""
+        # Reset state first
+        _reset_for_testing()
+
+        with pytest.raises(RuntimeError, match="Configuration not initialized"):
+            get_config()
+
+    def test_is_initialized_before_setup(self):
+        """Test is_initialized returns False before setup."""
+        # Reset state first
+        _reset_for_testing()
+
+        assert not is_initialized()
+        assert get_initialization_info() is None
+
+    def test_force_reinit_false_with_existing_config(self):
+        """Test that force_reinit=False doesn't override existing config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # First setup
+                    setup_environment(default_config={'key': 'original'})
+                    assert get_config().get('key') == 'original'
+
+                    # Second setup with force_reinit=False (default)
+                    setup_environment(default_config={'key': 'new'}, force_reinit=False)
+                    assert get_config().get('key') == 'original'  # Should remain unchanged
+
+    def test_empty_default_config(self):
+        """Test setup with empty or None default config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Test with None
+                    setup_environment(default_config=None)
+                    config = get_config()
+                    assert 'project_root' in config.to_dict()  # Should have project_root
+
+                    # Reset and test with empty dict
+                    _reset_for_testing()
+                    setup_environment(default_config={})
+                    config = get_config()
+                    assert 'project_root' in config.to_dict()  # Should have project_root
 
 
 if __name__ == "__main__":

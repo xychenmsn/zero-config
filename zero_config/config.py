@@ -8,6 +8,8 @@ from typing import Dict, Any, Optional, Union
 # Global state
 _config = None
 _project_root = None
+_is_initialized = False
+_initialized_by = None
 
 # ========================================
 # MINIMAL DEFAULTS - ZERO CONFIG APPROACH
@@ -297,7 +299,8 @@ def _load_env_files(project_root: Path, env_files: Optional[Union[str, Path, lis
 
 def setup_environment(
     default_config: Optional[Dict[str, Any]] = None,
-    env_files: Optional[Union[str, Path, list[Union[str, Path]]]] = None
+    env_files: Optional[Union[str, Path, list[Union[str, Path]]]] = None,
+    force_reinit: bool = False
 ) -> None:
     """Setup environment with flexible configuration layers.
 
@@ -305,8 +308,29 @@ def setup_environment(
         default_config: Default configuration values to start with
         env_files: Optional .env file(s) to load. Can be a single file path or list of file paths.
                   If not provided, will look for .env.zero_config in project root.
+        force_reinit: If True, force re-initialization even if already initialized.
+                     Use with caution as this can break package dependencies.
     """
-    global _config, _project_root
+    global _config, _project_root, _is_initialized, _initialized_by
+
+    # Check if already initialized
+    if _is_initialized and not force_reinit:
+        # Get caller information for better debugging
+        import inspect
+        caller_frame = inspect.currentframe().f_back
+        caller_info = f"{caller_frame.f_code.co_filename}:{caller_frame.f_lineno}"
+
+        logging.info(f"🔄 Zero-config already initialized by {_initialized_by}")
+        logging.info(f"   Subsequent call from: {caller_info}")
+        logging.info(f"   Skipping re-initialization to prevent conflicts")
+        logging.info(f"   Current project root: {_project_root}")
+        logging.info(f"   Use force_reinit=True to override (not recommended)")
+        return
+
+    # Record who is initializing this
+    import inspect
+    caller_frame = inspect.currentframe().f_back
+    _initialized_by = f"{caller_frame.f_code.co_filename}:{caller_frame.f_lineno}"
 
     # 1. Determine project root (env var override or auto-detection)
     if 'PROJECT_ROOT' in os.environ:
@@ -350,7 +374,11 @@ def setup_environment(
     # 6. Create config object
     _config = Config(config_data, _project_root)
 
+    # 7. Mark as initialized
+    _is_initialized = True
+
     logging.info(f"🚀 Environment setup complete")
+    logging.info(f"   Initialized by: {_initialized_by}")
     logging.info(f"   Project root: {_project_root}")
     logging.info(f"   Configuration keys: {list(config_data.keys())}")
 
@@ -359,4 +387,23 @@ def get_config() -> Config:
     if _config is None:
         raise RuntimeError("Configuration not initialized. Call setup_environment() first.")
     return _config
+
+
+def is_initialized() -> bool:
+    """Check if zero-config has been initialized."""
+    return _is_initialized
+
+
+def get_initialization_info() -> Optional[str]:
+    """Get information about who initialized zero-config."""
+    return _initialized_by if _is_initialized else None
+
+
+def _reset_for_testing() -> None:
+    """Reset global state for testing purposes. Internal use only."""
+    global _config, _project_root, _is_initialized, _initialized_by
+    _config = None
+    _project_root = None
+    _is_initialized = False
+    _initialized_by = None
 
