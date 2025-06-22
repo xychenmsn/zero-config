@@ -20,7 +20,26 @@ class Config:
         self._project_root = project_root
 
     def get(self, key: str, default: Any = None) -> Any:
-        return self._data.get(key, default)
+        # First check if it's a direct key
+        if key in self._data:
+            return self._data[key]
+
+        # If not found, check if it's a section (e.g., 'llm' for 'llm.*' keys)
+        section_prefix = f"{key}."
+        section_config = {}
+
+        for config_key, value in self._data.items():
+            if config_key.startswith(section_prefix):
+                # Remove section prefix: 'llm.models' -> 'models'
+                section_key = config_key[len(section_prefix):]
+                section_config[section_key] = value
+
+        # If we found section keys, return the section dict
+        if section_config:
+            return section_config
+
+        # Otherwise return the default
+        return default
 
     def __getitem__(self, key: str) -> Any:
         if key in self._data:
@@ -33,29 +52,7 @@ class Config:
     def to_dict(self) -> Dict[str, Any]:
         return self._data.copy()
 
-    def get_section(self, section: str) -> Dict[str, Any]:
-        """Get all configuration values for a specific section.
 
-        Args:
-            section: Section name (e.g., 'llm' for all 'llm.*' keys)
-
-        Returns:
-            Dictionary with section keys (without the section prefix)
-
-        Example:
-            config.get_section('llm') returns {'models': [...], 'temperature': 0.7}
-            for config keys 'llm.models' and 'llm.temperature'
-        """
-        section_prefix = f"{section}."
-        section_config = {}
-
-        for key, value in self._data.items():
-            if key.startswith(section_prefix):
-                # Remove section prefix: 'llm.models' -> 'models'
-                section_key = key[len(section_prefix):]
-                section_config[section_key] = value
-
-        return section_config
 
     def __getattr__(self, name: str) -> Any:
         """Dynamic path helper: any attribute ending with '_path' creates a path helper."""

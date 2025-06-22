@@ -322,7 +322,7 @@ class TestConfiguration:
                     assert config.get('database.port') == 3306  # converted to int
                     assert config.get('simple_key') == 'overridden'
 
-    def test_get_section(self):
+    def test_section_access(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             with patch('zero_config.config.find_project_root', return_value=Path(tmpdir)):
                 # Test with section headers in default config
@@ -341,8 +341,8 @@ class TestConfiguration:
                 setup_environment(default_config=default_config)
                 config = get_config()
 
-                # Test getting LLM section
-                llm_config = config.get_section('llm')
+                # Test getting LLM section via config.get('llm')
+                llm_config = config.get('llm')
                 expected_llm = {
                     'models': ['gpt-4'],
                     'temperature': 0.0,
@@ -350,8 +350,8 @@ class TestConfiguration:
                 }
                 assert llm_config == expected_llm
 
-                # Test getting database section
-                db_config = config.get_section('database')
+                # Test getting database section via config.get('database')
+                db_config = config.get('database')
                 expected_db = {
                     'host': 'localhost',
                     'port': 5432,
@@ -359,21 +359,25 @@ class TestConfiguration:
                 }
                 assert db_config == expected_db
 
-                # Test getting cache section
-                cache_config = config.get_section('cache')
+                # Test getting cache section via config.get('cache')
+                cache_config = config.get('cache')
                 expected_cache = {
                     'enabled': True,
                     'ttl': 3600
                 }
                 assert cache_config == expected_cache
 
-                # Test getting non-existent section
-                empty_config = config.get_section('nonexistent')
+                # Test getting non-existent section returns default
+                empty_config = config.get('nonexistent')
+                assert empty_config is None
+
+                # Test with custom default
+                empty_config = config.get('nonexistent', {})
                 assert empty_config == {}
 
                 # Test that simple keys are not included in sections
-                simple_config = config.get_section('simple')
-                assert simple_config == {}  # 'simple_key' doesn't match 'simple.*'
+                simple_config = config.get('simple')
+                assert simple_config is None  # 'simple_key' doesn't match 'simple.*'
 
     def test_edge_cases_and_safety(self):
         """Test edge cases and safety features of type conversion."""

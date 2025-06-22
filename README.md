@@ -127,8 +127,8 @@ default_config = {
 }
 
 config = get_config()
-llm_config = config.get_section('llm')    # {'models': [...], 'temperature': 0.0}
-db_config = config.get_section('database') # {'host': 'localhost', 'port': 5432}
+llm_config = config.get('llm')      # {'models': [...], 'temperature': 0.0}
+db_config = config.get('database')  # {'host': 'localhost', 'port': 5432}
 ```
 
 ### Type Conversion
@@ -159,7 +159,7 @@ setup_environment(
 config = get_config()
 config.get('key', default)         # Safe access with fallback
 config['key']                      # Direct access (raises KeyError if missing)
-config.get_section('llm')          # Get all llm.* keys as dict
+config.get('llm')                 # Get all llm.* keys as dict
 config.to_dict()                   # Get all config as dict
 
 # Dynamic paths (Ruby on Rails style)
