@@ -142,7 +142,7 @@ def load_domain_env_file(project_root: Path) -> Dict[str, str]:
     return env_vars
 
 def smart_convert(str_value: str, default_value: Any) -> Any:
-    """Convert string value based on default type with intelligent parsing."""
+    """Convert string value based on default type with safe, explicit parsing."""
     # Keep strings as-is
     if isinstance(default_value, str):
         return str_value
@@ -157,31 +157,29 @@ def smart_convert(str_value: str, default_value: Any) -> Any:
 
     # Fallback for common types
     if isinstance(default_value, bool):
-        return str_value.lower() in ('true', '1', 'yes', 'on')
+        return str_value.lower() in ('true', '1', 'yes', 'on', 'enabled')
+    elif isinstance(default_value, (int, float)):
+        try:
+            return type(default_value)(str_value)
+        except ValueError:
+            return str_value  # Keep as string if conversion fails
     elif isinstance(default_value, list):
-        # Support multiple list formats
+        # ONLY support explicit JSON array format for lists
         str_value = str_value.strip()
 
         # Empty string becomes empty list
         if not str_value:
             return []
 
-        # Try JSON array format first: ["item1", "item2"]
+        # Only JSON array format: ["item1", "item2"]
         if str_value.startswith('[') and str_value.endswith(']'):
             try:
                 return ast.literal_eval(str_value)
             except:
                 pass
 
-        # Try comma-separated: "item1,item2,item3"
-        if ',' in str_value:
-            return [item.strip() for item in str_value.split(',') if item.strip()]
-
-        # Try space-separated: "item1 item2 item3"
-        if ' ' in str_value:
-            return [item.strip() for item in str_value.split() if item.strip()]
-
-        # Single item becomes single-item list
+        # If not JSON format, treat as single-item list
+        # This preserves comma-containing strings safely
         return [str_value]
     else:
         return str_value

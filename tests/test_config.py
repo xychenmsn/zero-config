@@ -35,22 +35,33 @@ class TestSmartConvert:
         assert smart_convert("1", False) == True
         assert smart_convert("yes", False) == True
         assert smart_convert("on", False) == True
+        assert smart_convert("enabled", False) == True
         assert smart_convert("false", True) == False
         assert smart_convert("0", True) == False
+        assert smart_convert("invalid", False) == False  # Invalid bool returns default
+
+    def test_number_conversion(self):
+        # Integer conversion
+        assert smart_convert("42", 0) == 42
+        assert smart_convert("-123", 0) == -123
+        assert smart_convert("invalid", 0) == "invalid"  # Invalid int stays string
+
+        # Float conversion
+        assert smart_convert("3.14", 0.0) == 3.14
+        assert smart_convert("-2.5", 0.0) == -2.5
+        assert smart_convert("invalid", 0.0) == "invalid"  # Invalid float stays string
     
     def test_list_conversion(self):
-        # JSON array format (preferred)
+        # JSON array format (only supported format)
         assert smart_convert('["a", "b", "c"]', []) == ["a", "b", "c"]
         assert smart_convert('["item1", "item2"]', []) == ["item1", "item2"]
 
-        # Comma-separated format
-        assert smart_convert("a,b,c", []) == ["a", "b", "c"]
-        assert smart_convert("a, b , c", []) == ["a", "b", "c"]  # strips whitespace
-        assert smart_convert("item1,item2,item3", []) == ["item1", "item2", "item3"]
+        # Comma-separated strings are treated as single items (safe!)
+        assert smart_convert("a,b,c", []) == ["a,b,c"]  # Single item with commas
+        assert smart_convert("host1,host2,host3", []) == ["host1,host2,host3"]  # Database URL safe
 
-        # Space-separated format
-        assert smart_convert("a b c", []) == ["a", "b", "c"]
-        assert smart_convert("item1 item2 item3", []) == ["item1", "item2", "item3"]
+        # Space-separated strings are treated as single items (safe!)
+        assert smart_convert("hello world", []) == ["hello world"]  # Natural language safe
 
         # Single item
         assert smart_convert("single-item", []) == ["single-item"]
@@ -59,8 +70,9 @@ class TestSmartConvert:
         assert smart_convert("", []) == []
         assert smart_convert("   ", []) == []
 
-        # Mixed formats with commas and spaces (comma takes precedence)
-        assert smart_convert("a,b c,d", []) == ["a", "b c", "d"]
+        # Complex strings with commas are preserved
+        assert smart_convert("postgresql://host1,host2,host3/db", []) == ["postgresql://host1,host2,host3/db"]
+        assert smart_convert("Hello, welcome to our app!", []) == ["Hello, welcome to our app!"]
 
 
 class TestProjectRoot:
@@ -136,7 +148,7 @@ models=gpt-4,claude-3
 temperature=0.7
 max_tokens=2048
 debug=true
-models=gpt-4,claude-3
+models=["gpt-4", "claude-3"]
 api_key=sk-test-key
 """
             env_file.write_text(env_content)
@@ -196,7 +208,7 @@ class TestConfiguration:
                     'TEMPERATURE': '0.8',
                     'MAX_TOKENS': '2048',
                     'DEBUG': 'true',
-                    'MODELS': 'gpt-4,claude-3'
+                    'MODELS': '["gpt-4", "claude-3"]'
                 }, clear=True):
                     setup_environment(default_config=default_config)
                     config = get_config()

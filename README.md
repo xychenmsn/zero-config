@@ -71,10 +71,10 @@ export TEMPERATURE="0.7"                    # Becomes: temperature (with type co
 export MAX_TOKENS="2048"                    # Becomes: max_tokens (with type conversion)
 export DEBUG="true"                         # Becomes: debug (with type conversion)
 
-# Lists support multiple formats:
-export MODELS='["gpt-4", "claude-3"]'       # JSON array (preferred)
-export MODELS="gpt-4,claude-3"              # Comma-separated
-export MODELS="gpt-4 claude-3"              # Space-separated
+# Lists require explicit JSON array format (safe for comma-containing values):
+export MODELS='["gpt-4", "claude-3"]'       # JSON array (only supported format)
+export DATABASE_URL="host1,host2,host3"     # Stays as string (safe!)
+export WELCOME="Hello, world!"              # Stays as string (safe!)
 
 # Section headers with double underscore:
 export LLM__MODELS='["gpt-4", "claude-3"]'  # Becomes: llm.models
@@ -97,10 +97,10 @@ temperature=0.2
 max_tokens=2048
 debug=true
 
-# Lists support multiple formats:
-models=["gpt-4", "claude-3", "gemini-pro"]  # JSON array (recommended)
-# models=gpt-4,claude-3,gemini-pro          # Comma-separated
-# models=gpt-4 claude-3 gemini-pro          # Space-separated
+# Lists require explicit JSON array format (safe for comma-containing values):
+models=["gpt-4", "claude-3", "gemini-pro"]  # JSON array (only supported format)
+database_url=postgresql://host1,host2,host3/db  # Stays as string (safe!)
+welcome_message=Hello, welcome to our app!      # Stays as string (safe!)
 
 # Any key defined in your default config gets type conversion
 # New keys are added as strings
@@ -166,13 +166,13 @@ default_config = {
     'models': ['gpt-4']      # list
 }
 
-# Environment variables are converted to match
+# Environment variables are converted to match default types
 # export TEMPERATURE="0.7"                    → float: 0.7
 # export MAX_TOKENS="2048"                    → int: 2048
 # export DEBUG="true"                         → bool: True
-# export MODELS='["gpt-4", "claude-3"]'       → list: ['gpt-4', 'claude-3'] (JSON)
-# export MODELS="gpt-4,claude-3"              → list: ['gpt-4', 'claude-3'] (comma)
-# export MODELS="gpt-4 claude-3"              → list: ['gpt-4', 'claude-3'] (space)
+# export MODELS='["gpt-4", "claude-3"]'       → list: ['gpt-4', 'claude-3'] (JSON only)
+# export DATABASE_URL="host1,host2,host3"     → string: "host1,host2,host3" (safe!)
+# export WELCOME="Hello, world!"              → string: "Hello, world!" (safe!)
 ```
 
 ### Custom Project Root
