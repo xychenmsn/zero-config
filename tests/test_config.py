@@ -908,5 +908,832 @@ class TestEdgeCasesAndErrorHandling:
                     assert 'project_root' in config.to_dict()  # Should have project_root
 
 
+class TestMultiLevelConfiguration:
+    """Test multi-level configuration support."""
+
+    def test_multi_level_environment_variables(self):
+        """Test that DATABASE__DEVELOPE__DB_URL becomes database.develope.db_url."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    'DATABASE__DEVELOPE__DB_URL': 'postgresql://localhost:5432/dev',
+                    'DATABASE__DEVELOPE__POOL_SIZE': '10',
+                    'DATABASE__PRODUCTION__DB_URL': 'postgresql://prod.db.com:5432/prod',
+                    'LLM__OPENAI__API_KEY': 'sk-test123',
+                    'LLM__OPENAI__MODEL': 'gpt-4',
+                    'LLM__ANTHROPIC__API_KEY': 'claude-key',
+                    'SIMPLE_KEY': 'simple_value'
+                }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Setup with defaults for all environment variables we want to test
+                    default_config = {
+                        'database.develope.db_url': 'sqlite:///default.db',
+                        'database.develope.pool_size': 5,  # int default
+                        'database.production.db_url': 'sqlite:///prod.db',
+                        'llm.openai.api_key': 'default-openai-key',
+                        'llm.openai.model': 'gpt-3.5-turbo',
+                        'llm.anthropic.api_key': 'default-anthropic-key',
+                        'simple_key': 'default'
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Test multi-level access
+                    assert config.get('database.develope.db_url') == 'postgresql://localhost:5432/dev'
+                    assert config.get('database.develope.pool_size') == 10  # Should be converted to int
+                    assert config.get('database.production.db_url') == 'postgresql://prod.db.com:5432/prod'
+                    assert config.get('llm.openai.api_key') == 'sk-test123'
+                    assert config.get('llm.openai.model') == 'gpt-4'
+                    assert config.get('llm.anthropic.api_key') == 'claude-key'
+                    assert config.get('simple_key') == 'simple_value'
+
+                    # Test section access
+                    database_section = config.get('database')
+                    assert database_section == {
+                        'develope': {
+                            'db_url': 'postgresql://localhost:5432/dev',
+                            'pool_size': 10
+                        },
+                        'production': {
+                            'db_url': 'postgresql://prod.db.com:5432/prod'
+                        }
+                    }
+
+                    llm_section = config.get('llm')
+                    assert llm_section == {
+                        'openai': {
+                            'api_key': 'sk-test123',
+                            'model': 'gpt-4'
+                        },
+                        'anthropic': {
+                            'api_key': 'claude-key'
+                        }
+                    }
+
+                    # Test subsection access
+                    database_develope = config.get('database.develope')
+                    assert database_develope == {
+                        'db_url': 'postgresql://localhost:5432/dev',
+                        'pool_size': 10
+                    }
+
+                    llm_openai = config.get('llm.openai')
+                    assert llm_openai == {
+                        'api_key': 'sk-test123',
+                        'model': 'gpt-4'
+                    }
+
+    def test_multi_level_default_config(self):
+        """Test that default config can be provided in both flat and nested formats."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Mix of flat and nested default config
+                    default_config = {
+                        'database.develope.db_url': 'sqlite:///dev.db',
+                        'database.develope.pool_size': 5,
+                        'llm': {
+                            'openai': {
+                                'api_key': 'default-key',
+                                'model': 'gpt-3.5-turbo'
+                            }
+                        },
+                        'simple_key': 'simple_value'
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Test that both formats work
+                    assert config.get('database.develope.db_url') == 'sqlite:///dev.db'
+                    assert config.get('database.develope.pool_size') == 5
+                    assert config.get('llm.openai.api_key') == 'default-key'
+                    assert config.get('llm.openai.model') == 'gpt-3.5-turbo'
+                    assert config.get('simple_key') == 'simple_value'
+
+                    # Test section access
+                    database_section = config.get('database')
+                    assert database_section == {
+                        'develope': {
+                            'db_url': 'sqlite:///dev.db',
+                            'pool_size': 5
+                        }
+                    }
+
+                    llm_section = config.get('llm')
+                    assert llm_section == {
+                        'openai': {
+                            'api_key': 'default-key',
+                            'model': 'gpt-3.5-turbo'
+                        }
+                    }
+
+    def test_env_file_multi_level_support(self):
+        """Test that .env files support multi-level configuration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            env_file = tmpdir_path / ".env.zero_config"
+
+            # Create env file with multi-level keys
+            env_content = """
+# Database configuration
+DATABASE__DEVELOPE__DB_URL=postgresql://localhost:5432/dev
+DATABASE__DEVELOPE__POOL_SIZE=10
+DATABASE__PRODUCTION__DB_URL=postgresql://prod.db.com:5432/prod
+
+# LLM configuration
+LLM__OPENAI__API_KEY=sk-env-key
+LLM__OPENAI__MODEL=gpt-4
+LLM__ANTHROPIC__API_KEY=claude-env-key
+
+# Simple key
+SIMPLE_KEY=env_value
+"""
+            env_file.write_text(env_content.strip())
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Setup with some defaults
+                    default_config = {
+                        'database.develope.pool_size': 5,  # int default
+                        'simple_key': 'default'
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Test that env file values are loaded correctly
+                    assert config.get('database.develope.db_url') == 'postgresql://localhost:5432/dev'
+                    assert config.get('database.develope.pool_size') == 10  # Should be converted to int
+                    assert config.get('database.production.db_url') == 'postgresql://prod.db.com:5432/prod'
+                    assert config.get('llm.openai.api_key') == 'sk-env-key'
+                    assert config.get('llm.openai.model') == 'gpt-4'
+                    assert config.get('llm.anthropic.api_key') == 'claude-env-key'
+                    assert config.get('simple_key') == 'env_value'
+
+
+class TestEnvironmentVariableFiltering:
+    """Test that OS environment variables are only loaded if they have defaults."""
+
+    def test_os_env_vars_only_loaded_with_defaults(self):
+        """Test that OS environment variables are only loaded if they exist in default config."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    'DATABASE__URL': 'postgresql://localhost:5432/test',  # Has default
+                    'DATABASE__POOL_SIZE': '10',  # Has default
+                    'RANDOM_UNRELATED_VAR': 'should_not_be_loaded',  # No default
+                    'ANOTHER_RANDOM_VAR': 'also_should_not_be_loaded',  # No default
+                    'API_KEY': 'sk-test123'  # Has default
+                }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Only provide defaults for some of the env vars
+                    default_config = {
+                        'database.url': 'sqlite:///default.db',
+                        'database.pool_size': 5,
+                        'api_key': 'default-key'
+                        # Note: no defaults for RANDOM_UNRELATED_VAR or ANOTHER_RANDOM_VAR
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # These should be loaded (have defaults)
+                    assert config.get('database.url') == 'postgresql://localhost:5432/test'
+                    assert config.get('database.pool_size') == 10
+                    assert config.get('api_key') == 'sk-test123'
+
+                    # These should NOT be loaded (no defaults)
+                    assert config.get('random_unrelated_var') is None
+                    assert config.get('another_random_var') is None
+
+                    # Verify they're not in the config at all
+                    assert 'random_unrelated_var' not in config.to_flat_dict()
+                    assert 'another_random_var' not in config.to_flat_dict()
+
+    def test_env_files_load_all_variables(self):
+        """Test that env files load ALL variables regardless of defaults."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            env_file = tmpdir_path / ".env.zero_config"
+
+            # Create env file with variables that don't have defaults
+            env_content = """
+DATABASE__URL=postgresql://localhost:5432/env
+DATABASE__POOL_SIZE=15
+NEW_VAR_FROM_ENV=should_be_loaded
+ANOTHER_NEW_VAR=also_should_be_loaded
+API_KEY=sk-env-key
+"""
+            env_file.write_text(env_content.strip())
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Only provide defaults for some variables
+                    default_config = {
+                        'database.url': 'sqlite:///default.db',
+                        'api_key': 'default-key'
+                        # Note: no defaults for pool_size or the new vars
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # These should be loaded from env file (have defaults)
+                    assert config.get('database.url') == 'postgresql://localhost:5432/env'
+                    assert config.get('api_key') == 'sk-env-key'
+
+                    # These should ALSO be loaded from env file (even without defaults)
+                    assert config.get('database.pool_size') == '15'  # String since no default type
+                    assert config.get('new_var_from_env') == 'should_be_loaded'
+                    assert config.get('another_new_var') == 'also_should_be_loaded'
+
+
+class TestAllRequirements:
+    """Test all 5 requirements comprehensively."""
+
+    def test_all_requirements_comprehensive(self):
+        """Test all 5 requirements in one comprehensive test."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            env_file = tmpdir_path / ".env.zero_config"
+
+            # Create env file with multi-level keys
+            env_content = """
+# These should be loaded (from env file)
+DATABASE__MAIN__URL=postgresql://env.db.com:5432/main
+DATABASE__CACHE__URL=redis://env.cache.com:6379
+NEW_ENV_VAR=loaded_from_env_file
+"""
+            env_file.write_text(env_content.strip())
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    # These should be loaded (have defaults)
+                    'DATABASE__MAIN__POOL_SIZE': '20',
+                    'API__OPENAI__KEY': 'sk-os-env-key',
+                    # These should NOT be loaded (no defaults)
+                    'RANDOM_OS_VAR': 'should_not_be_loaded',
+                    'UNRELATED_VAR': 'also_should_not_be_loaded'
+                }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Requirement 1: Store everything as dict with multiple levels
+                    # Requirement 3: Default config can be nested or flat
+                    default_config = {
+                        # Nested format
+                        'database': {
+                            'main': {
+                                'url': 'sqlite:///default.db',
+                                'pool_size': 10
+                            }
+                        },
+                        # Flat format
+                        'api.openai.key': 'default-openai-key',
+                        'simple_key': 'default_value'
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Requirement 1: Internally all data is in a big dict of multiple levels
+                    nested_dict = config.to_dict()
+                    assert isinstance(nested_dict, dict)
+                    assert isinstance(nested_dict['database'], dict)
+                    assert isinstance(nested_dict['database']['main'], dict)
+                    assert isinstance(nested_dict['api'], dict)
+                    assert isinstance(nested_dict['api']['openai'], dict)
+
+                    # Requirement 2: All __ in environment or env files are converted into the big dict
+                    # From OS env vars (with defaults)
+                    assert config.get('database.main.pool_size') == 20  # DATABASE__MAIN__POOL_SIZE
+                    assert config.get('api.openai.key') == 'sk-os-env-key'  # API__OPENAI__KEY
+
+                    # From env file
+                    assert config.get('database.main.url') == 'postgresql://env.db.com:5432/main'  # DATABASE__MAIN__URL
+                    assert config.get('database.cache.url') == 'redis://env.cache.com:6379'  # DATABASE__CACHE__URL
+
+                    # Requirement 3: OS env vars only loaded if they have defaults, env files load all
+                    # OS env vars without defaults should NOT be loaded
+                    assert config.get('random_os_var') is None
+                    assert config.get('unrelated_var') is None
+                    assert 'random_os_var' not in config.to_flat_dict()
+                    assert 'unrelated_var' not in config.to_flat_dict()
+
+                    # Env file vars should be loaded even without defaults
+                    assert config.get('new_env_var') == 'loaded_from_env_file'
+
+                    # Requirement 4: Accessing variables should always use dot separated keys
+                    assert config.get('database.main.url') == 'postgresql://env.db.com:5432/main'
+                    assert config.get('database.main.pool_size') == 20
+                    assert config.get('database.cache.url') == 'redis://env.cache.com:6379'
+                    assert config.get('api.openai.key') == 'sk-os-env-key'
+                    assert config.get('simple_key') == 'default_value'
+
+                    # Requirement 5: We can get section of config and access with remaining part of keys
+                    database_section = config.get('database')
+                    assert database_section.get('main').get('url') == 'postgresql://env.db.com:5432/main'
+                    assert database_section.get('main').get('pool_size') == 20
+                    assert database_section.get('cache').get('url') == 'redis://env.cache.com:6379'
+
+                    api_section = config.get('api')
+                    assert api_section.get('openai').get('key') == 'sk-os-env-key'
+
+                    # Alternative access pattern for requirement 5
+                    database_main = config.get('database.main')
+                    assert database_main.get('url') == 'postgresql://env.db.com:5432/main'
+                    assert database_main.get('pool_size') == 20
+
+                    # Verify the structure is exactly as expected
+                    expected_structure = {
+                        'database': {
+                            'main': {
+                                'url': 'postgresql://env.db.com:5432/main',
+                                'pool_size': 20
+                            },
+                            'cache': {
+                                'url': 'redis://env.cache.com:6379'
+                            }
+                        },
+                        'api': {
+                            'openai': {
+                                'key': 'sk-os-env-key'
+                            }
+                        },
+                        'simple_key': 'default_value',
+                        'new_env_var': 'loaded_from_env_file',
+                        'project_root': str(tmpdir_path)
+                    }
+
+                    actual_structure = config.to_dict()
+                    # Remove any extra environment variables that might be present
+                    filtered_actual = {k: v for k, v in actual_structure.items()
+                                     if k in expected_structure}
+
+                    assert filtered_actual == expected_structure
+
+
+class TestEnvironmentVariableMatchingApproaches:
+    """Test different approaches for matching environment variables to config keys."""
+
+    def test_current_approach_vs_alternative(self):
+        """Demonstrate current approach vs alternative approach for env var matching."""
+        from zero_config.config import _flatten_nested_dict
+
+        # Sample nested config
+        nested_config = {
+            'database': {
+                'develope': {
+                    'db_url': 'sqlite:///default.db',
+                    'pool_size': 5
+                },
+                'production': {
+                    'db_url': 'postgresql://prod.db.com:5432/prod'
+                }
+            },
+            'llm': {
+                'openai': {
+                    'api_key': 'default-key',
+                    'model': 'gpt-3.5-turbo'
+                }
+            },
+            'simple_key': 'default_value'
+        }
+
+        # Sample environment variables
+        env_vars = {
+            'DATABASE__DEVELOPE__DB_URL': 'postgresql://localhost:5432/dev',
+            'DATABASE__DEVELOPE__POOL_SIZE': '10',
+            'LLM__OPENAI__API_KEY': 'sk-test123',
+            'UNRELATED_VAR': 'should_not_match',  # No corresponding config
+            'SIMPLE_KEY': 'overridden_value'
+        }
+
+        print("\n🔍 Demonstrating Environment Variable Matching Approaches")
+        print("=" * 65)
+
+        # CURRENT APPROACH: Flatten config to dot notation, convert env vars to dot notation
+        print("\n📊 Current Approach:")
+        print("1. Flatten config to dot notation")
+        flattened_config = _flatten_nested_dict(nested_config)
+        print(f"   Flattened config keys: {list(flattened_config.keys())}")
+
+        print("2. Convert env vars to dot notation and match")
+        current_matches = {}
+        for env_var, env_value in env_vars.items():
+            if env_var.isupper():
+                if '__' in env_var:
+                    config_key = '.'.join([part.lower() for part in env_var.split('__')])
+                else:
+                    config_key = env_var.lower()
+
+                if config_key in flattened_config:
+                    current_matches[env_var] = config_key
+                    print(f"   ✅ {env_var} → {config_key} (MATCH)")
+                else:
+                    print(f"   ❌ {env_var} → {config_key} (NO MATCH)")
+
+        # ALTERNATIVE APPROACH: Flatten config to __ notation, direct lookup
+        print("\n📊 Alternative Approach (Your Suggestion):")
+        print("1. Flatten config to __ notation")
+
+        def _flatten_to_env_format(nested_dict: dict, parent_key: str = '', separator: str = '__') -> dict:
+            """Flatten nested dict to environment variable format (UPPER__CASE__KEYS)."""
+            items = []
+            for key, value in nested_dict.items():
+                new_key = f"{parent_key}{separator}{key.upper()}" if parent_key else key.upper()
+                if isinstance(value, dict):
+                    items.extend(_flatten_to_env_format(value, new_key, separator).items())
+                else:
+                    items.append((new_key, value))
+            return dict(items)
+
+        env_format_config = _flatten_to_env_format(nested_config)
+        print(f"   Env format config keys: {list(env_format_config.keys())}")
+
+        print("2. Direct lookup of env vars")
+        alternative_matches = {}
+        for env_var, env_value in env_vars.items():
+            if env_var.isupper():
+                if env_var in env_format_config:
+                    alternative_matches[env_var] = env_var
+                    print(f"   ✅ {env_var} (DIRECT MATCH)")
+                else:
+                    print(f"   ❌ {env_var} (NO MATCH)")
+
+        # Both approaches should yield the same results
+        print(f"\n📈 Results Comparison:")
+        print(f"   Current approach matches: {len(current_matches)}")
+        print(f"   Alternative approach matches: {len(alternative_matches)}")
+
+        # Convert alternative matches to same format for comparison
+        alternative_converted = {}
+        for env_var in alternative_matches:
+            if '__' in env_var:
+                config_key = '.'.join([part.lower() for part in env_var.split('__')])
+            else:
+                config_key = env_var.lower()
+            alternative_converted[env_var] = config_key
+
+        assert current_matches == alternative_converted, "Both approaches should yield same results"
+
+        print("   ✅ Both approaches yield identical results!")
+
+        # Performance consideration
+        print(f"\n⚡ Performance Considerations:")
+        print(f"   Current: O(E) where E = number of env vars")
+        print(f"   Alternative: O(E) where E = number of env vars")
+        print(f"   Both are O(E) but alternative has simpler lookup logic")
+
+
+def _demonstrate_alternative_implementation():
+    """Show how the alternative approach could be implemented."""
+
+    def apply_environment_variables_alternative(config: dict) -> None:
+        """Alternative implementation using __ format flattening."""
+
+        # Step 1: Create a reverse mapping from ENV_VAR format to dot notation
+        def _flatten_to_env_format(nested_dict: dict, parent_key: str = '', separator: str = '__') -> dict:
+            """Flatten nested dict to environment variable format."""
+            items = []
+            for key, value in nested_dict.items():
+                new_key = f"{parent_key}{separator}{key.upper()}" if parent_key else key.upper()
+                if isinstance(value, dict):
+                    items.extend(_flatten_to_env_format(value, new_key, separator).items())
+                else:
+                    # Store the dot notation key as the value for reverse lookup
+                    dot_key = f"{parent_key.lower().replace('__', '.')}.{key}" if parent_key else key
+                    items.append((new_key, dot_key))
+            return dict(items)
+
+        # Step 2: Build the reverse mapping
+        env_to_dot_mapping = {}
+
+        # We need to reconstruct the nested structure from flat config first
+        # This is more complex, so the current approach is actually simpler!
+
+        # Step 3: Direct lookup
+        for env_var, env_value in os.environ.items():
+            if env_var.isupper() and env_var in env_to_dot_mapping:
+                dot_key = env_to_dot_mapping[env_var]
+                if dot_key in config:
+                    # Apply the override
+                    pass
+
+    return apply_environment_variables_alternative
+
+
+class TestImprovedEnvironmentVariableMatching:
+    """Test the improved environment variable matching approach."""
+
+    def test_direct_nested_override_approach(self):
+        """Test that the improved approach directly overrides nested structure."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    'DATABASE__DEVELOPE__DB_URL': 'postgresql://localhost:5432/dev',
+                    'DATABASE__DEVELOPE__POOL_SIZE': '25',
+                    'LLM__OPENAI__API_KEY': 'sk-improved-test',
+                    'UNRELATED_VAR': 'should_not_be_loaded'
+                }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Nested default config
+                    default_config = {
+                        'database': {
+                            'develope': {
+                                'db_url': 'sqlite:///default.db',
+                                'pool_size': 10,
+                                'timeout': 30
+                            }
+                        },
+                        'llm': {
+                            'openai': {
+                                'api_key': 'default-key',
+                                'model': 'gpt-3.5-turbo'
+                            }
+                        }
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Test that environment variables properly override nested values
+                    assert config.get('database.develope.db_url') == 'postgresql://localhost:5432/dev'
+                    assert config.get('database.develope.pool_size') == 25  # Should be converted to int
+                    assert config.get('database.develope.timeout') == 30  # Should remain default
+                    assert config.get('llm.openai.api_key') == 'sk-improved-test'
+                    assert config.get('llm.openai.model') == 'gpt-3.5-turbo'  # Should remain default
+
+                    # Test that unrelated env vars are not loaded
+                    assert config.get('unrelated_var') is None
+
+                    # Test that nested structure is preserved
+                    nested_dict = config.to_dict()
+                    assert isinstance(nested_dict['database'], dict)
+                    assert isinstance(nested_dict['database']['develope'], dict)
+                    assert nested_dict['database']['develope']['db_url'] == 'postgresql://localhost:5432/dev'
+                    assert nested_dict['database']['develope']['pool_size'] == 25
+
+                    # Test section access works perfectly
+                    database_section = config.get('database')
+                    assert database_section['develope']['db_url'] == 'postgresql://localhost:5432/dev'
+                    assert database_section['develope']['pool_size'] == 25
+
+                    # Test subsection access
+                    develope_section = config.get('database.develope')
+                    assert develope_section['db_url'] == 'postgresql://localhost:5432/dev'
+                    assert develope_section['pool_size'] == 25
+
+    def test_env_mapping_creation(self):
+        """Test the environment variable mapping creation."""
+        from zero_config.config import _create_env_mapping, _build_nested_dict_from_flat
+
+        # Test flat config to nested conversion
+        flat_config = {
+            'database.develope.db_url': 'sqlite:///default.db',
+            'database.develope.pool_size': 10,
+            'llm.openai.api_key': 'default-key',
+            'simple_key': 'value'
+        }
+
+        nested_config = _build_nested_dict_from_flat(flat_config)
+        expected_nested = {
+            'database': {
+                'develope': {
+                    'db_url': 'sqlite:///default.db',
+                    'pool_size': 10
+                }
+            },
+            'llm': {
+                'openai': {
+                    'api_key': 'default-key'
+                }
+            },
+            'simple_key': 'value'
+        }
+
+        assert nested_config == expected_nested
+
+        # Test environment mapping creation
+        env_mapping = _create_env_mapping(nested_config)
+        expected_mapping = {
+            'DATABASE__DEVELOPE__DB_URL': ['database', 'develope', 'db_url'],
+            'DATABASE__DEVELOPE__POOL_SIZE': ['database', 'develope', 'pool_size'],
+            'LLM__OPENAI__API_KEY': ['llm', 'openai', 'api_key'],
+            'SIMPLE_KEY': ['simple_key']
+        }
+
+        assert env_mapping == expected_mapping
+
+    def test_advantages_of_improved_approach(self):
+        """Demonstrate the advantages of the improved approach."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    'DATABASE__CACHE__REDIS__HOST': 'redis.example.com',
+                    'DATABASE__CACHE__REDIS__PORT': '6379',
+                    'API__EXTERNAL__WEATHER__KEY': 'weather-api-key',
+                    'API__EXTERNAL__WEATHER__TIMEOUT': '30'
+                }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Complex nested default config
+                    default_config = {
+                        'database': {
+                            'cache': {
+                                'redis': {
+                                    'host': 'localhost',
+                                    'port': 6379,
+                                    'db': 0
+                                }
+                            }
+                        },
+                        'api': {
+                            'external': {
+                                'weather': {
+                                    'key': 'default-weather-key',
+                                    'timeout': 10,
+                                    'retries': 3
+                                }
+                            }
+                        }
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Advantage 1: Direct nested access works perfectly
+                    assert config.get('database.cache.redis.host') == 'redis.example.com'
+                    assert config.get('database.cache.redis.port') == 6379  # Type converted
+                    assert config.get('database.cache.redis.db') == 0  # Default preserved
+
+                    assert config.get('api.external.weather.key') == 'weather-api-key'
+                    assert config.get('api.external.weather.timeout') == 30  # Type converted
+                    assert config.get('api.external.weather.retries') == 3  # Default preserved
+
+                    # Advantage 2: Section access is natural and intuitive
+                    redis_config = config.get('database.cache.redis')
+                    assert redis_config == {
+                        'host': 'redis.example.com',
+                        'port': 6379,
+                        'db': 0
+                    }
+
+                    weather_config = config.get('api.external.weather')
+                    assert weather_config == {
+                        'key': 'weather-api-key',
+                        'timeout': 30,
+                        'retries': 3
+                    }
+
+                    # Advantage 3: Nested structure is preserved perfectly
+                    full_config = config.to_dict()
+                    assert full_config['database']['cache']['redis']['host'] == 'redis.example.com'
+                    assert full_config['api']['external']['weather']['key'] == 'weather-api-key'
+
+                    # Advantage 4: No complex reconstruction needed - it's already nested!
+                    # The config object maintains both flat and nested representations seamlessly
+
+
+
+
+
+class TestProjectRootCorrectBehavior:
+    """Test that PROJECT_ROOT behaves correctly (OS env > auto-detection, .env files ignored)."""
+
+    def test_os_env_project_root_overrides_auto_detection(self):
+        """Test that OS environment PROJECT_ROOT overrides auto-detection."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            custom_project_root = tmpdir_path / "custom_project_root"
+            custom_project_root.mkdir()
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    'PROJECT_ROOT': str(custom_project_root),
+                    'DATABASE__URL': 'postgresql://localhost:5432/test'
+                }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Default config
+                    default_config = {
+                        'database.url': 'sqlite:///default.db'
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # OS environment PROJECT_ROOT should override auto-detection
+                    assert config.get('project_root') == str(custom_project_root)
+                    assert config.get('database.url') == 'postgresql://localhost:5432/test'
+
+    def test_env_file_project_root_ignored(self):
+        """Test that PROJECT_ROOT in .env files is ignored (chicken-and-egg problem)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            env_file_root = tmpdir_path / "env_file_root"
+            env_file_root.mkdir()
+
+            # Create .env file with PROJECT_ROOT (should be ignored)
+            env_file = tmpdir_path / ".env.zero_config"
+            env_content = f"""
+PROJECT_ROOT={env_file_root}
+DATABASE__URL=postgresql://env.db.com:5432/test
+"""
+            env_file.write_text(env_content.strip())
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {}, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Default config
+                    default_config = {
+                        'database.url': 'sqlite:///default.db'
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # Should use auto-detected project root, NOT the .env file value
+                    assert config.get('project_root') == str(tmpdir_path)
+                    # But other .env file values should work
+                    assert config.get('database.url') == 'postgresql://env.db.com:5432/test'
+
+    def test_project_root_priority_order(self):
+        """Test the correct priority order: OS env > auto-detection (.env files ignored)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir).resolve()
+            custom_os_root = tmpdir_path / "custom_os_root"
+            env_file_root = tmpdir_path / "env_file_root"
+            custom_os_root.mkdir()
+            env_file_root.mkdir()
+
+            # Create .env file in the OS environment PROJECT_ROOT location
+            # (since that's where the system will look for it)
+            env_file = custom_os_root / ".env.zero_config"
+            env_content = f"""
+PROJECT_ROOT={env_file_root}
+DATABASE__URL=postgresql://env.db.com:5432/test
+API__KEY=env-file-key
+"""
+            env_file.write_text(env_content.strip())
+
+            with patch('zero_config.config.find_project_root', return_value=tmpdir_path):
+                with patch.dict(os.environ, {
+                    'PROJECT_ROOT': str(custom_os_root),  # Should win
+                    'DATABASE__POOL_SIZE': '20'
+                }, clear=True):
+                    # Reset state first
+                    _reset_for_testing()
+
+                    # Default config
+                    default_config = {
+                        'database.url': 'sqlite:///default.db',
+                        'database.pool_size': 5,
+                        'api.key': 'default-key'
+                    }
+
+                    setup_environment(default_config=default_config)
+                    config = get_config()
+
+                    # OS environment PROJECT_ROOT should win (not .env file)
+                    assert config.get('project_root') == str(custom_os_root)
+                    # Other .env file values should work normally
+                    assert config.get('database.url') == 'postgresql://env.db.com:5432/test'
+                    assert config.get('api.key') == 'env-file-key'
+                    # OS env vars should work
+                    assert config.get('database.pool_size') == 20
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

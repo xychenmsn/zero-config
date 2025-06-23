@@ -16,45 +16,96 @@ _initialized_by = None
 # ========================================
 DEFAULTS = {}
 
+class DotDict(dict):
+    """Dictionary that supports dot notation for nested access and assignment."""
+
+    def __init__(self, data=None):
+        super().__init__()
+        if data:
+            for key, value in data.items():
+                self[key] = value
+
+    def __getitem__(self, key):
+        if '.' in key:
+            return self._get_nested(key)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key, value):
+        if '.' in key:
+            self._set_nested(key, value)
+        else:
+            super().__setitem__(key, value)
+
+    def __contains__(self, key):
+        if '.' in key:
+            try:
+                self._get_nested(key)
+                return True
+            except KeyError:
+                return False
+        return super().__contains__(key)
+
+    def get(self, key, default=None):
+        try:
+            return self[key]
+        except KeyError:
+            return default
+
+    def _get_nested(self, key):
+        """Get value using dot notation."""
+        parts = key.split('.')
+        current = self
+        for part in parts:
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            else:
+                raise KeyError(key)
+        return current
+
+    def _set_nested(self, key, value):
+        """Set value using dot notation."""
+        parts = key.split('.')
+        current = self
+        for part in parts[:-1]:
+            if part not in current:
+                current[part] = DotDict()
+            elif not isinstance(current[part], dict):
+                current[part] = DotDict()
+            current = current[part]
+        current[parts[-1]] = value
+
+
 class Config:
     def __init__(self, config_data: Dict[str, Any], project_root: Path):
-        self._data = config_data
+        self._data = DotDict(config_data)  # Use DotDict for native dot notation support
         self._project_root = project_root
 
     def get(self, key: str, default: Any = None) -> Any:
-        # First check if it's a direct key
-        if key in self._data:
-            return self._data[key]
-
-        # If not found, check if it's a section (e.g., 'llm' for 'llm.*' keys)
-        section_prefix = f"{key}."
-        section_config = {}
-
-        for config_key, value in self._data.items():
-            if config_key.startswith(section_prefix):
-                # Remove section prefix: 'llm.models' -> 'models'
-                section_key = config_key[len(section_prefix):]
-                section_config[section_key] = value
-
-        # If we found section keys, return the section dict
-        if section_config:
-            return section_config
-
-        # Otherwise return the default
-        return default
+        """Get configuration value with support for nested keys and sections."""
+        return self._data.get(key, default)
 
     def __getitem__(self, key: str) -> Any:
-        if key in self._data:
-            return self._data[key]
-        raise KeyError(f"Configuration key '{key}' not found")
+        return self._data[key]
 
     def __contains__(self, key: str) -> bool:
         return key in self._data
 
     def to_dict(self) -> Dict[str, Any]:
-        return self._data.copy()
+        """Return the nested dictionary representation."""
+        return dict(self._data)
 
-
+    def to_flat_dict(self) -> Dict[str, Any]:
+        """Return the flat dictionary with dot notation keys."""
+        def _flatten(d, parent_key='', sep='.'):
+            items = []
+            for k, v in d.items():
+                new_key = f"{parent_key}{sep}{k}" if parent_key else k
+                if isinstance(v, dict):
+                    items.extend(_flatten(v, new_key, sep=sep).items())
+                else:
+                    items.append((new_key, v))
+            return dict(items)
+        return _flatten(self._data)
 
     def __getattr__(self, name: str) -> Any:
         """Dynamic path helper: any attribute ending with '_path' creates a path helper."""
@@ -140,6 +191,33 @@ def load_domain_env_file(project_root: Path) -> Dict[str, str]:
 
     return env_vars
 
+def _flatten_nested_dict(nested_dict: Dict[str, Any], parent_key: str = '', separator: str = '.') -> Dict[str, Any]:
+    """
+    Flatten a nested dictionary into a flat dictionary with dot notation keys.
+
+    Args:
+        nested_dict: The nested dictionary to flatten
+        parent_key: The parent key prefix (used for recursion)
+        separator: The separator to use between keys (default: '.')
+
+    Returns:
+        A flat dictionary with dot notation keys
+
+    Example:
+        {'database': {'develop': {'db_url': 'test'}}} -> {'database.develop.db_url': 'test'}
+    """
+    items = []
+    for key, value in nested_dict.items():
+        new_key = f"{parent_key}{separator}{key}" if parent_key else key
+        if isinstance(value, dict):
+            # Recursively flatten nested dictionaries
+            items.extend(_flatten_nested_dict(value, new_key, separator).items())
+        else:
+            # Keep the value as-is
+            items.append((new_key, value))
+    return dict(items)
+
+
 def smart_convert(str_value: str, default_value: Any) -> Any:
     """Convert string value based on default type with safe, explicit parsing."""
     # Keep strings as-is
@@ -183,30 +261,128 @@ def smart_convert(str_value: str, default_value: Any) -> Any:
     else:
         return str_value
 
-def apply_environment_variables(config: Dict[str, Any]) -> None:
-    """Apply environment variables with smart type conversion and section support."""
+def _create_env_mapping(nested_dict: Dict[str, Any], path: list = None) -> Dict[str, list]:
+    """
+    Create mapping from ENV_VAR format to nested path in dictionary.
 
-    # Search uppercase environment variables and match to config keys
-    for env_var, env_value in os.environ.items():
-        if env_var.isupper():
-            # Handle section headers: LLM__MODELS -> llm.models
-            if '__' in env_var:
-                section, key = env_var.split('__', 1)
-                config_key = f"{section.lower()}.{key.lower()}"
+    Args:
+        nested_dict: The nested dictionary to map
+        path: Current path (used for recursion)
+
+    Returns:
+        Dictionary mapping ENV_VAR_FORMAT to list of keys representing path
+
+    Example:
+        {'database': {'develop': {'db_url': 'test'}}}
+        -> {'DATABASE__DEVELOP__DB_URL': ['database', 'develop', 'db_url']}
+    """
+    if path is None:
+        path = []
+
+    mapping = {}
+    for key, value in nested_dict.items():
+        current_path = path + [key]
+        env_key = '__'.join([p.upper() for p in current_path])
+
+        if isinstance(value, dict):
+            # Recursively process nested dicts
+            mapping.update(_create_env_mapping(value, current_path))
+        else:
+            # Store the path to this value
+            mapping[env_key] = current_path
+
+    return mapping
+
+
+def apply_environment_variables(config: DotDict) -> None:
+    """
+    Apply environment variables using the optimal approach:
+
+    1. Flatten config keys to ENV_VAR format (DATABASE__DEVELOPE__DB_URL)
+    2. Loop through flattened keys and directly check os.environ[key]
+    3. If found, use dot notation to directly set config[dot_key] = value
+
+    This is much more efficient than looping through all environment variables.
+    """
+
+    # Step 1: Get all flat keys from config and convert to ENV_VAR format
+    flat_keys = _get_all_flat_keys(config)
+
+    # Always add PROJECT_ROOT to be checked, even if not in default config
+    if 'project_root' not in flat_keys:
+        flat_keys.append('project_root')
+
+    env_var_keys = set()
+
+    for dot_key in flat_keys:
+        # Convert dot notation to ENV_VAR format
+        env_var = dot_key.replace('.', '__').upper()
+        env_var_keys.add(env_var)
+
+    # Step 2: Loop through ENV_VAR keys and check if they exist in os.environ
+    for env_var in env_var_keys:
+        if env_var in os.environ:
+            env_value = os.environ[env_var]
+
+            # Parse ENV_VAR back to dot notation
+            dot_key = env_var.replace('__', '.').lower()
+
+            # Skip PROJECT_ROOT - it's handled separately with proper priority order
+            if dot_key == 'project_root':
+                logging.debug(f"Skipping {env_var} - PROJECT_ROOT handled separately with priority order")
+            elif dot_key in config:
+                # Update existing config value using dot notation
+                old_value = config[dot_key]
+                new_value = smart_convert(env_value, old_value)
+                config[dot_key] = new_value  # DotDict handles the nested assignment
+                logging.debug(f"Environment override: {env_var} -> {dot_key} = {new_value}")
             else:
-                # Regular key: TEMPERATURE -> temperature
-                config_key = env_var.lower()
+                # This shouldn't happen since we only check keys from our config
+                logging.debug(f"Skipping {env_var} - not in config")
 
-            # Skip project_root - it's already set and should not be overridden
-            if config_key == 'project_root':
-                logging.debug(f"Skipping {env_var} - project_root is handled separately")
-                continue
+    logging.debug(f"Checked {len(env_var_keys)} potential environment variables")
 
-            # Only apply if we have a corresponding config key (from defaults or .env)
-            if config_key in config:
-                # Use smart conversion based on the existing default value type
-                config[config_key] = smart_convert(env_value, config[config_key])
-                logging.debug(f"Environment override: {env_var} -> {config_key} = {config[config_key]}")
+
+def _get_all_flat_keys(config: DotDict) -> list:
+    """Get all flat keys from a nested config structure."""
+    def _flatten_keys(d, parent_key='', sep='.'):
+        keys = []
+        for k, v in d.items():
+            new_key = f"{parent_key}{sep}{k}" if parent_key else k
+            if isinstance(v, dict):
+                keys.extend(_flatten_keys(v, new_key, sep=sep))
+            else:
+                keys.append(new_key)
+        return keys
+    return _flatten_keys(config)
+
+
+def _build_nested_dict_from_flat(flat_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Build nested dictionary from flat dictionary with dot notation keys.
+
+    Args:
+        flat_dict: Dictionary with dot notation keys
+
+    Returns:
+        Nested dictionary structure
+
+    Example:
+        {'database.develop.db_url': 'test'} -> {'database': {'develop': {'db_url': 'test'}}}
+    """
+    nested_dict = {}
+    for key, value in flat_dict.items():
+        if '.' in key:
+            parts = key.split('.')
+            current = nested_dict
+            for part in parts[:-1]:
+                if part not in current:
+                    current[part] = {}
+                current = current[part]
+            current[parts[-1]] = value
+        else:
+            nested_dict[key] = value
+    return nested_dict
 
 def _load_env_file_data(project_root: Path, env_files: Optional[Union[str, Path, list[Union[str, Path]]]]) -> Dict[str, str]:
     """Load environment files and return their data as a dictionary."""
@@ -244,7 +420,7 @@ def _load_env_file_data(project_root: Path, env_files: Optional[Union[str, Path,
 
 
 def _parse_env_file(env_file: Path) -> Dict[str, str]:
-    """Parse a single env file and return its data."""
+    """Parse a single env file and return its data with support for multi-level sections."""
     env_vars = {}
     try:
         with open(env_file, 'r') as f:
@@ -255,6 +431,11 @@ def _parse_env_file(env_file: Path) -> Dict[str, str]:
                         key, value = line.split('=', 1)
                         key = key.strip().lower()
                         value = value.strip().strip('"\'')
+                        
+                        # Convert double underscores to dots for consistency with env vars
+                        if '__' in key:
+                            key = key.replace('__', '.')
+                            
                         env_vars[key] = value
     except Exception as e:
         logging.error(f"Failed to load {env_file}: {e}")
@@ -332,7 +513,8 @@ def setup_environment(
     caller_frame = inspect.currentframe().f_back
     _initialized_by = f"{caller_frame.f_code.co_filename}:{caller_frame.f_lineno}"
 
-    # 1. Determine project root (env var override or auto-detection)
+    # 1. Determine project root (OS environment has priority over auto-detection)
+    # .env files CANNOT override project root due to chicken-and-egg problem
     if 'PROJECT_ROOT' in os.environ:
         _project_root = Path(os.environ['PROJECT_ROOT']).resolve()
         logging.info(f"Using PROJECT_ROOT from environment: {_project_root}")
@@ -340,23 +522,31 @@ def setup_environment(
         _project_root = find_project_root()
         logging.info(f"Auto-detected project root: {_project_root}")
 
-    # 2. Load environment files
+    # 2. Load environment files (using determined project root)
     _load_env_files(_project_root, env_files)
 
     # Configuration priority (low to high):
     # 2. Default values (user-provided or empty)
-    config_data = (default_config or {}).copy()
+    # Create DotDict from default configuration (supports both nested and flat formats)
+    raw_default_config = (default_config or {}).copy()
+    config_data = DotDict()
 
-    # 3. Always add project_root (from env or auto-detected, as absolute path)
+    # Add flattened default config to DotDict
+    flattened_defaults = _flatten_nested_dict(raw_default_config)
+    for key, value in flattened_defaults.items():
+        config_data[key] = value
+
+    # 3. Add project_root to config (already determined above)
     config_data['project_root'] = str(_project_root)
 
-    # 4. OS environment variables
+    # 4. OS environment variables (excluding PROJECT_ROOT which is handled above)
     apply_environment_variables(config_data)
 
-    # 5. Load env files (custom files or default .env.zero_config)
+    # 5. Load env files and apply configuration
+    # .env files CANNOT override project_root (chicken-and-egg problem)
     env_data = _load_env_file_data(_project_root, env_files)
     for key, str_value in env_data.items():
-        # Skip project_root - it's already set and should not be overridden by .env file
+        # Skip project_root - .env files cannot override project root
         if key == 'project_root':
             logging.warning(f"Ignoring project_root in env file - use PROJECT_ROOT env var instead")
             continue
