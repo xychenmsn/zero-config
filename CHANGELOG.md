@@ -5,6 +5,57 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2025-01-23
+
+### Documentation
+
+- **Comprehensive documentation updates**: Updated README.md with multi-level configuration examples
+- **New documentation structure**: Added `docs/README.md` as documentation index
+- **Enhanced guides**: Updated all documentation to reflect v0.1.5+ features
+- **Release notes**: Added `RELEASE_NOTES_0.1.6.md` with complete feature overview
+- **Migration guidance**: Updated migration guide for v0.1.5+ features
+
+### Enhanced
+
+- Updated README.md with environment variable filtering explanation
+- Enhanced API reference with multi-level configuration methods
+- Improved examples showing mixed configuration formats
+- Better documentation of package conflict prevention
+
+## [0.1.5] - 2025-01-23
+
+### Added
+
+- **Multi-level configuration support**: Environment variables with double underscores (`DATABASE__DEVELOPE__DB_URL`) are converted to nested structure (`database.develope.db_url`)
+- **Enhanced DotDict implementation**: Native dot notation support for nested access and assignment
+- **Environment variable filtering**: OS environment variables are only loaded if they have corresponding defaults in configuration
+- **Mixed configuration formats**: Support both nested dictionaries and flat dot notation in default configuration
+- **Improved section access**: Enhanced section access with multi-level support (`config.get('database.develope')`)
+- **New documentation**: Added `docs/MULTI_LEVEL_CONFIGURATION.md` with comprehensive guide
+- **Demo script**: Added `demo_multi_level.py` demonstrating all multi-level features
+
+### Enhanced
+
+- `Config.to_flat_dict()` method for getting flat representation with dot notation keys
+- Environment file loading now supports multi-level keys with `__` conversion
+- Smart type conversion works with multi-level configurations
+- Section access now supports arbitrary nesting levels
+
+### Internal
+
+- Refactored configuration storage to use nested dictionaries internally
+- Improved environment variable matching algorithm for better performance
+- Enhanced `_flatten_nested_dict()` function for mixed format support
+- Better logging for multi-level configuration debugging
+
+## [0.1.4] - 2025-01-22
+
+### Added
+
+- Enhanced test coverage for edge cases and real-world scenarios
+- Improved error handling and validation
+- Better logging and debugging support
+
 ## [0.1.3] - 2025-01-22
 
 ### Added

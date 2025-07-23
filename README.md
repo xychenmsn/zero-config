@@ -38,11 +38,43 @@ print(config.get('database.port'))     # 5432 (from .env file, new key as int)
 ## 🏗️ Why Layered Configuration?
 
 - **Defaults in Code**: Your app defines the schema and sensible defaults
-- **Environment Variables**: Perfect for deployment-specific overrides (Docker, CI/CD)
-- **Environment Files**: Great for local development and secrets management
+- **Environment Variables**: Perfect for deployment-specific overrides (Docker, CI/CD) - only loaded if defaults exist
+- **Environment Files**: Great for local development and secrets management - loads all variables
 - **Type Safety**: Environment strings are automatically converted to match your default types
+- **Multi-Level Support**: Handle complex nested configurations with ease
+- **Package Conflict Prevention**: Automatic protection when multiple packages use zero-config
 
 ## 🔧 Configuration Sources
+
+### 🔄 Environment Variable Filtering (NEW in v0.1.5+)
+
+Zero Config uses **smart environment variable filtering** to prevent configuration pollution:
+
+- **OS Environment Variables**: Only loaded if they have corresponding defaults in your configuration
+- **Environment Files**: Load ALL variables regardless of defaults
+
+```python
+# Example: You have these OS environment variables set
+# OPENAI_API_KEY=sk-test123        ← Will be loaded (has default)
+# DATABASE_HOST=localhost          ← Will be loaded (has default)
+# RANDOM_SYSTEM_VAR=some_value     ← Will be IGNORED (no default)
+# PATH=/usr/bin:/bin               ← Will be IGNORED (no default)
+
+default_config = {
+    'openai_api_key': '',      # OS env OPENAI_API_KEY will override this
+    'database.host': 'local',  # OS env DATABASE__HOST will override this
+    # No default for RANDOM_SYSTEM_VAR, so it's ignored
+}
+
+setup_environment(default_config=default_config)
+config = get_config()
+
+print(config.get('openai_api_key'))    # "sk-test123" (from OS env)
+print(config.get('database.host'))     # "localhost" (from OS env)
+print(config.get('random_system_var')) # None (filtered out)
+```
+
+This prevents your application configuration from being polluted by unrelated system environment variables.
 
 ### Environment Variables
 
@@ -53,10 +85,18 @@ export DEBUG="true"                         # Becomes: debug (bool)
 export MODELS='["gpt-4", "claude-3"]'       # JSON arrays for lists
 export DATABASE_URL="host1,host2,host3"     # Strings with commas stay safe
 
-# Section headers with double underscore
+# Section headers with double underscore (multi-level support)
 export LLM__TEMPERATURE="0.7"               # Becomes: llm.temperature
 export DATABASE__HOST="remote.db.com"       # Becomes: database.host
+
+# Multi-level configuration (NEW in v0.1.5+)
+export DATABASE__DEVELOPE__DB_URL="postgresql://localhost:5432/dev"  # Becomes: database.develope.db_url
+export DATABASE__DEVELOPE__POOL_SIZE="10"   # Becomes: database.develope.pool_size (converted to int)
+export LLM__OPENAI__API_KEY="sk-test123"    # Becomes: llm.openai.api_key
+export LLM__ANTHROPIC__MODEL="claude-3"     # Becomes: llm.anthropic.model
 ```
+
+**Important**: OS environment variables are only loaded if they have corresponding defaults in your configuration. This prevents random environment variables from polluting your config.
 
 ### Environment Files
 
@@ -66,7 +106,15 @@ openai_api_key=sk-your-local-key
 llm.temperature=0.7
 database.port=5432
 models=["gpt-4", "claude-3"]
+
+# Multi-level configuration in env files (NEW in v0.1.5+)
+DATABASE__DEVELOPE__DB_URL=postgresql://localhost:5432/dev
+DATABASE__DEVELOPE__POOL_SIZE=10
+LLM__OPENAI__API_KEY=sk-env-key
+LLM__OPENAI__MODEL=gpt-4
 ```
+
+**Important**: Environment files load ALL variables regardless of whether they have defaults. This allows you to add new configuration keys via env files.
 
 ### Custom Environment Files
 
@@ -115,20 +163,49 @@ config.cache_path('session.json')    # /project/cache/session.json
 config.models_path('gpt4.bin')       # /project/models/gpt4.bin
 ```
 
-### Section Configuration
+### Section Configuration & Multi-Level Support
 
 ```python
-# Define sections with dot notation
+# Define sections with dot notation OR nested dictionaries (NEW in v0.1.5+)
 default_config = {
+    # Flat dot notation (traditional)
     'llm.models': ['gpt-4'],
     'llm.temperature': 0.0,
     'database.host': 'localhost',
     'database.port': 5432,
+
+    # Nested dictionary format (NEW)
+    'database': {
+        'develope': {
+            'db_url': 'sqlite:///dev.db',
+            'pool_size': 5
+        },
+        'production': {
+            'db_url': 'postgresql://prod.db.com:5432/prod'
+        }
+    },
+
+    # Mixed formats work together!
+    'llm.openai.api_key': 'default-key',  # Flat notation
+    'cache': {                            # Nested format
+        'enabled': True,
+        'ttl': 3600
+    }
 }
 
 config = get_config()
-llm_config = config.get('llm')      # {'models': [...], 'temperature': 0.0}
-db_config = config.get('database')  # {'host': 'localhost', 'port': 5432}
+
+# Access sections (returns all keys within that section)
+llm_config = config.get('llm')      # {'models': [...], 'temperature': 0.0, 'openai': {'api_key': '...'}}
+db_config = config.get('database')  # {'host': 'localhost', 'port': 5432, 'develope': {...}, 'production': {...}}
+
+# Access multi-level keys directly with dot notation
+db_url = config.get('database.develope.db_url')     # 'sqlite:///dev.db'
+api_key = config.get('llm.openai.api_key')          # 'default-key'
+
+# Access subsections
+develope_config = config.get('database.develope')   # {'db_url': '...', 'pool_size': 5}
+openai_config = config.get('llm.openai')            # {'api_key': 'default-key'}
 ```
 
 ### Type Conversion
@@ -144,6 +221,8 @@ Environment variables are automatically converted to match your default types:
 
 ```bash
 pip install zero-config
+# Or install specific version
+pip install zero-config==0.1.6
 ```
 
 ## 🛡️ Package Conflict Prevention
@@ -221,7 +300,7 @@ def initialize_package():
 ```python
 # Setup
 setup_environment(
-    default_config={...},           # Your app's defaults
+    default_config={...},           # Your app's defaults (supports nested dicts and flat dot notation)
     env_files="custom.env",         # Optional: custom env file(s)
     force_reinit=False              # Force re-init (use with caution)
 )
@@ -230,8 +309,11 @@ setup_environment(
 config = get_config()
 config.get('key', default)         # Safe access with fallback
 config['key']                      # Direct access (raises KeyError if missing)
-config.get('llm')                 # Get all llm.* keys as dict
-config.to_dict()                   # Get all config as dict
+config.get('llm')                  # Get all llm.* keys as dict (section access)
+config.get('database.develope')    # Get subsection as dict (NEW: multi-level)
+config.get('database.develope.db_url')  # Direct multi-level access (NEW)
+config.to_dict()                   # Get all config as nested dict
+config.to_flat_dict()              # Get all config as flat dict with dot notation keys
 
 # Initialization status
 is_initialized()                   # Check if already initialized
@@ -241,6 +323,11 @@ get_initialization_info()          # Get info about who initialized
 config.data_path('file.db')        # /project/data/file.db
 config.logs_path('app.log')        # /project/logs/app.log
 config.any_name_path('file')       # /project/any_name/file
+
+# Multi-level configuration examples (NEW in v0.1.5+)
+config.get('database')             # Returns entire database section
+config.get('database.develope')    # Returns develope subsection
+config.get('llm.openai')          # Returns OpenAI LLM subsection
 ```
 
 ## 🔍 Debugging & Troubleshooting
@@ -307,7 +394,34 @@ setup_environment(default_config=config)
 # INFO: 🚀 Environment setup complete
 ```
 
+## 📚 Documentation
+
+For comprehensive guides and advanced usage, see the [docs/](docs/) directory:
+
+- **[Multi-Level Configuration](docs/MULTI_LEVEL_CONFIGURATION.md)** - Complete guide to nested configurations ⭐ **NEW**
+- **[Package Conflict Prevention](docs/PACKAGE_CONFLICT_PREVENTION.md)** - Prevent configuration conflicts
+- **[Best Practices](docs/BEST_PRACTICES.md)** - Production deployment and architecture patterns
+- **[Examples](docs/EXAMPLES.md)** - Real-world usage examples
+- **[Documentation Index](docs/README.md)** - Complete documentation overview
+
 ## 🚀 Migration Guide
+
+### From v0.1.5 to v0.1.6+
+
+**No breaking changes!** This is a documentation enhancement release. All v0.1.5 features remain unchanged.
+
+- ✅ **Enhanced documentation**: Comprehensive guides and examples for all features
+- ✅ **Documentation index**: New `docs/README.md` with complete overview
+- ✅ **Improved examples**: Better multi-level configuration examples in README
+
+### From v0.1.4 to v0.1.5+
+
+**No breaking changes!** Your existing code continues to work. New features:
+
+- ✅ **Multi-level configuration support**: `DATABASE__DEVELOPE__DB_URL` → `database.develope.db_url`
+- ✅ **Enhanced DotDict implementation**: Native dot notation support for nested access
+- ✅ **Improved environment variable filtering**: OS env vars only loaded if defaults exist
+- ✅ **Mixed configuration formats**: Support both nested dicts and flat dot notation in defaults
 
 ### From v0.1.0 to v0.1.1+
 
