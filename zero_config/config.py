@@ -234,7 +234,14 @@ def smart_convert(str_value: str, default_value: Any) -> Any:
 
     # Fallback for common types
     if isinstance(default_value, bool):
-        return str_value.lower() in ('true', '1', 'yes', 'on', 'enabled')
+        str_lower = str_value.lower()
+        if str_lower in ('true', '1', 'yes', 'on', 'enabled'):
+            return True
+        elif str_lower in ('false', '0', 'no', 'off', 'disabled'):
+            return False
+        else:
+            # If it's not a recognized boolean value, keep the default
+            return default_value
     elif isinstance(default_value, (int, float)):
         try:
             return type(default_value)(str_value)
